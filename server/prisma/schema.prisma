@@ -1,0 +1,188 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeaveType {
+  PAID
+  UNPAID
+  SICK
+  OTHER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  firstName    String
+  lastName     String
+  role         Role     @default(EMPLOYEE)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  timeEntries      TimeEntry[]
+  leaveRequests    LeaveRequest[]   @relation("UserLeaves")
+  approvedLeaves   LeaveRequest[]   @relation("ApprovedLeaves")
+  projectAssignments ProjectAssignment[]
+  resetTokens      PasswordResetToken[]
+
+  @@map("users")
+}
+
+model Project {
+  id             String        @id @default(cuid())
+  code           String        @unique
+  name           String
+  description    String?
+  status         ProjectStatus @default(ACTIVE)
+  estimatedHours Float?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relations
+  tasks        Task[]
+  timeEntries  TimeEntry[]
+  assignments  ProjectAssignment[]
+
+  @@map("projects")
+}
+
+model Task {
+  id             String   @id @default(cuid())
+  code           String
+  label          String
+  description    String?
+  estimatedHours Float?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  timeEntries TimeEntry[]
+
+  @@unique([projectId, code])
+  @@map("tasks")
+}
+
+model ProjectAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  assignedAt DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@map("project_assignments")
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  hours       Float
+  description String?
+  validated   Boolean  @default(false)
+  weekNumber  Int
+  year        Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, taskId])
+  @@index([userId, weekNumber, year])
+  @@map("time_entries")
+}
+
+model WeekValidation {
+  id         String   @id @default(cuid())
+  userId     String
+  weekNumber Int
+  year       Int
+  validated  Boolean  @default(true)
+  validatedAt DateTime @default(now())
+  totalHours Float
+
+  @@unique([userId, weekNumber, year])
+  @@map("week_validations")
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  startDate   DateTime    @db.Date
+  endDate     DateTime    @db.Date
+  type        LeaveType   @default(PAID)
+  status      LeaveStatus @default(PENDING)
+  reason      String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  approvedAt  DateTime?
+
+  // Relations
+  userId      String
+  user        User   @relation("UserLeaves", fields: [userId], references: [id], onDelete: Cascade)
+  approvedById String?
+  approvedBy   User?  @relation("ApprovedLeaves", fields: [approvedById], references: [id])
+
+  @@map("leave_requests")
+}
+
+model PublicHoliday {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date @unique
+  name        String
+  year        Int
+
+  @@index([year])
+  @@map("public_holidays")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
