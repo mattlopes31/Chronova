@@ -1,20 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { PrismaClient, Role } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../index';
 
 export interface AuthRequest extends Request {
   user?: {
-    id: string;
+    id: bigint;
     email: string;
-    role: Role;
-    firstName: string;
-    lastName: string;
+    role: string;
+    nom: string;
+    prenom: string;
   };
 }
 
-export const authenticate = async (
+export const authMiddleware = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
@@ -27,52 +25,58 @@ export const authenticate = async (
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as {
-      userId: string;
-    };
-
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+    const secret = process.env.JWT_SECRET || 'chronova-secret';
+    
+    const decoded = jwt.verify(token, secret) as { id: string; email: string };
+    
+    const salarie = await prisma.salarie.findUnique({
+      where: { id: BigInt(decoded.id) },
       select: {
         id: true,
         email: true,
         role: true,
-        firstName: true,
-        lastName: true,
-        isActive: true,
-      },
+        nom: true,
+        prenom: true,
+        actif: true
+      }
     });
 
-    if (!user || !user.isActive) {
+    if (!salarie || !salarie.actif) {
       return res.status(401).json({ error: 'Utilisateur non trouvé ou inactif' });
     }
 
-    req.user = user;
+    req.user = {
+      id: salarie.id,
+      email: salarie.email,
+      role: salarie.role,
+      nom: salarie.nom,
+      prenom: salarie.prenom
+    };
+
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Token invalide' });
   }
 };
 
-export const requireAdmin = (
+export const adminMiddleware = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
-  if (req.user?.role !== Role.ADMIN) {
+  if (req.user?.role !== 'Admin') {
     return res.status(403).json({ error: 'Accès réservé aux administrateurs' });
   }
   next();
 };
 
-export const requireSelfOrAdmin = (paramName: string = 'id') => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
-    const targetUserId = req.params[paramName];
-    
-    if (req.user?.role === Role.ADMIN || req.user?.id === targetUserId) {
-      return next();
-    }
-    
-    return res.status(403).json({ error: 'Accès non autorisé' });
-  };
+export const managerMiddleware = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (req.user?.role !== 'Admin' && req.user?.role !== 'Manager') {
+    return res.status(403).json({ error: 'Accès réservé aux managers' });
+  }
+  next();
 };

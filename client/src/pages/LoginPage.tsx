@@ -57,8 +57,8 @@ export const LoginPage = () => {
               <Clock className="w-10 h-10 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold text-white">TimeTrack</h1>
-              <p className="text-primary-400 font-medium">Pro</p>
+              <h1 className="text-4xl font-bold text-white">Chronova</h1>
+              <p className="text-primary-400 font-medium">pro</p>
             </div>
           </div>
           
@@ -94,7 +94,7 @@ export const LoginPage = () => {
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
               <Clock className="w-7 h-7 text-white" />
             </div>
-            <span className="text-2xl font-bold text-neutral-900">TimeTrack Pro</span>
+            <span className="text-2xl font-bold text-neutral-900">Chronovo</span>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl border border-neutral-200 p-8">

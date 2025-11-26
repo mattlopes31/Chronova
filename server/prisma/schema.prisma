@@ -1,5 +1,7 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// =====================================================
+// CHRONOVA - Schéma Prisma
+// Correspond à la structure PostgreSQL créée
+// =====================================================
 
 generator client {
   provider = "prisma-client-js"
@@ -10,179 +12,472 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN
-  EMPLOYEE
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum ProjetStatusEnum {
+  En_cours
+  Stoppe
+  Termine
+  Annule
+
+  @@map("projet_status_enum")
 }
 
-enum LeaveStatus {
-  PENDING
-  APPROVED
-  REJECTED
+enum SalarieFonctionEnum {
+  Cableur
+  DAO
+  Prog
+  Chef_Projet
+  Admin
+  Autre
+
+  @@map("salarie_fonction_enum")
 }
 
-enum LeaveType {
-  PAID
-  UNPAID
-  SICK
-  OTHER
+enum SalarieStatusEnum {
+  Salarie
+  Interim
+  Sous_traitant
+  Apprentissage
+  Stage
+  Autre
+
+  @@map("salarie_status_enum")
 }
 
-enum ProjectStatus {
-  ACTIVE
-  COMPLETED
-  ON_HOLD
-  CANCELLED
+enum CongeTypeEnum {
+  CP
+  RTT
+  Maladie
+  Sans_solde
+  Formation
+  Autre
+
+  @@map("conge_type_enum")
 }
 
-model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  password     String
-  firstName    String
-  lastName     String
-  role         Role     @default(EMPLOYEE)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+enum ValidationStatusEnum {
+  Brouillon
+  Soumis
+  Valide
+  Rejete
+
+  @@map("validation_status_enum")
+}
+
+enum UserRoleEnum {
+  Admin
+  Manager
+  Salarie
+
+  @@map("user_role_enum")
+}
+
+// =====================================================
+// TABLES
+// =====================================================
+
+model Pays {
+  id            BigInt   @id @default(autoincrement())
+  country_name  String   @db.VarChar(50)
+  country_code  String?  @db.Char(10)
+  country_code2 String?  @db.Char(2)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now()) @updatedAt
 
   // Relations
-  timeEntries      TimeEntry[]
-  leaveRequests    LeaveRequest[]   @relation("UserLeaves")
-  approvedLeaves   LeaveRequest[]   @relation("ApprovedLeaves")
-  projectAssignments ProjectAssignment[]
-  resetTokens      PasswordResetToken[]
+  clients     Client[]
+  jours_ferie JourFerie[]
 
-  @@map("users")
+  @@index([country_code])
+  @@index([country_code2])
+  @@map("pays")
 }
 
-model Project {
-  id             String        @id @default(cuid())
-  code           String        @unique
-  name           String
-  description    String?
-  status         ProjectStatus @default(ACTIVE)
-  estimatedHours Float?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+model Client {
+  id             BigInt   @id @default(autoincrement())
+  nom            String   @db.VarChar(100)
+  contact_nom    String   @db.VarChar(100)
+  contact_prenom String?  @db.VarChar(100)
+  contact_email  String?  @db.VarChar(100)
+  contact_tel    String?  @db.VarChar(20)
+  adresse        String?  @db.VarChar(200)
+  cp             String?  @db.VarChar(10)
+  ville          String?  @db.VarChar(100)
+  pays_id        BigInt?
+  siret          String?  @db.VarChar(14)
+  code_client    String?  @unique @db.VarChar(20)
+  actif          Boolean  @default(true)
+  notes          String?  @db.Text
+  created_at     DateTime @default(now())
+  updated_at     DateTime @default(now()) @updatedAt
 
   // Relations
-  tasks        Task[]
-  timeEntries  TimeEntry[]
-  assignments  ProjectAssignment[]
+  pays    Pays?    @relation(fields: [pays_id], references: [id], onDelete: SetNull)
+  projets Projet[]
 
-  @@map("projects")
+  @@index([pays_id])
+  @@index([nom])
+  @@index([code_client])
+  @@map("client")
 }
 
-model Task {
-  id             String   @id @default(cuid())
-  code           String
-  label          String
-  description    String?
-  estimatedHours Float?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+model ProjetStatus {
+  id          BigInt           @id @default(autoincrement())
+  status      ProjetStatusEnum @default(En_cours)
+  description String?          @db.VarChar(250)
+  couleur     String?          @default("#3B82F6") @db.VarChar(7)
+  created_at  DateTime         @default(now())
 
   // Relations
-  projectId   String
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  timeEntries TimeEntry[]
+  projets Projet[]
 
-  @@unique([projectId, code])
-  @@map("tasks")
+  @@map("projet_status")
 }
 
-model ProjectAssignment {
-  id        String   @id @default(cuid())
-  userId    String
-  projectId String
-  assignedAt DateTime @default(now())
+model Projet {
+  id               BigInt   @id @default(autoincrement())
+  nom              String   @db.VarChar(100)
+  code_projet      String?  @unique @db.VarChar(20)
+  projet_status_id BigInt?
+  description      String?  @db.VarChar(500)
+  client_id        BigInt?
+  start_date       DateTime? @db.Date
+  end_date         DateTime? @db.Date
+  budget_heures    Decimal? @db.Decimal(10, 2)
+  budget_euros     Decimal? @db.Decimal(12, 2)
+  priorite         Int      @default(1)
+  responsable_id   BigInt?
+  actif            Boolean  @default(true)
+  archive          Boolean  @default(false)
+  notes            String?  @db.Text
+  created_at       DateTime @default(now())
+  updated_at       DateTime @default(now()) @updatedAt
 
   // Relations
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status       ProjetStatus?         @relation(fields: [projet_status_id], references: [id], onDelete: SetNull)
+  client       Client?               @relation(fields: [client_id], references: [id], onDelete: SetNull)
+  responsable  Salarie?              @relation("ProjetResponsable", fields: [responsable_id], references: [id], onDelete: SetNull)
+  taches       TacheProjet[]
+  affectations TacheProjetSalarie[]
+  pointages    SalariePointage[]
 
-  @@unique([userId, projectId])
-  @@map("project_assignments")
+  @@index([projet_status_id])
+  @@index([client_id])
+  @@index([start_date, end_date])
+  @@index([code_projet])
+  @@map("projet")
 }
 
-model TimeEntry {
-  id          String   @id @default(cuid())
-  date        DateTime @db.Date
-  hours       Float
-  description String?
-  validated   Boolean  @default(false)
-  weekNumber  Int
-  year        Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model SalarieFonction {
+  id                  BigInt              @id @default(autoincrement())
+  fonction            SalarieFonctionEnum
+  description         String?             @db.VarChar(250)
+  taux_horaire_defaut Decimal?            @db.Decimal(10, 2)
+  created_at          DateTime            @default(now())
 
   // Relations
-  userId    String
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  taskId    String
-  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  salaries Salarie[]
 
-  @@unique([userId, date, taskId])
-  @@index([userId, weekNumber, year])
-  @@map("time_entries")
+  @@map("salarie_fonction")
 }
 
-model WeekValidation {
-  id         String   @id @default(cuid())
-  userId     String
-  weekNumber Int
-  year       Int
-  validated  Boolean  @default(true)
-  validatedAt DateTime @default(now())
-  totalHours Float
-
-  @@unique([userId, weekNumber, year])
-  @@map("week_validations")
-}
-
-model LeaveRequest {
-  id          String      @id @default(cuid())
-  startDate   DateTime    @db.Date
-  endDate     DateTime    @db.Date
-  type        LeaveType   @default(PAID)
-  status      LeaveStatus @default(PENDING)
-  reason      String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  approvedAt  DateTime?
+model SalarieStatus {
+  id          BigInt            @id @default(autoincrement())
+  status      SalarieStatusEnum @default(Salarie)
+  description String?           @db.VarChar(250)
+  created_at  DateTime          @default(now())
 
   // Relations
-  userId      String
-  user        User   @relation("UserLeaves", fields: [userId], references: [id], onDelete: Cascade)
-  approvedById String?
-  approvedBy   User?  @relation("ApprovedLeaves", fields: [approvedById], references: [id])
+  salaries Salarie[]
 
-  @@map("leave_requests")
+  @@map("salarie_status")
 }
 
-model PublicHoliday {
-  id          String   @id @default(cuid())
-  date        DateTime @db.Date @unique
-  name        String
-  year        Int
+model Salarie {
+  id                   BigInt       @id @default(autoincrement())
+  nom                  String       @db.VarChar(100)
+  prenom               String       @db.VarChar(100)
+  email                String       @unique @db.VarChar(100)
+  tel                  String?      @db.VarChar(20)
+  actif                Boolean      @default(true)
+  password_hash        String?      @db.VarChar(255)
+  salarie_fonction_id  BigInt?
+  salarie_status_id    BigInt?
+  matricule            String?      @unique @db.VarChar(20)
+  date_entree          DateTime?    @db.Date
+  date_sortie          DateTime?    @db.Date
+  taux_horaire         Decimal?     @db.Decimal(10, 2)
+  heures_hebdo         Decimal?     @default(35) @db.Decimal(4, 1)
+  role                 UserRoleEnum @default(Salarie)
+  manager_id           BigInt?
+  avatar_url           String?      @db.VarChar(255)
+  derniere_connexion   DateTime?
+  token_reset_password String?      @db.VarChar(255)
+  token_expiration     DateTime?
+  created_at           DateTime     @default(now())
+  updated_at           DateTime     @default(now()) @updatedAt
 
-  @@index([year])
-  @@map("public_holidays")
+  // Relations
+  fonction           SalarieFonction?     @relation(fields: [salarie_fonction_id], references: [id], onDelete: SetNull)
+  status             SalarieStatus?       @relation(fields: [salarie_status_id], references: [id], onDelete: SetNull)
+  manager            Salarie?             @relation("SalarieManager", fields: [manager_id], references: [id], onDelete: SetNull)
+  subordonnes        Salarie[]            @relation("SalarieManager")
+  projets_responsable Projet[]            @relation("ProjetResponsable")
+  affectations       TacheProjetSalarie[]
+  pointages          SalariePointage[]
+  conges             SalarieCp[]
+  pointages_valides  SalariePointage[]    @relation("PointageValidateur")
+  conges_valides     SalarieCp[]          @relation("CongeValidateur")
+  validations        ValidationSemaine[]  @relation("ValidationSalarie")
+  validations_faites ValidationSemaine[]  @relation("ValidationValidateur")
+  notifications      Notification[]
+  audit_logs         AuditLog[]
+
+  @@index([email])
+  @@index([matricule])
+  @@index([salarie_fonction_id])
+  @@index([salarie_status_id])
+  @@index([manager_id])
+  @@index([actif])
+  @@map("salarie")
 }
 
-model PasswordResetToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
+model TacheType {
+  id            BigInt   @id @default(autoincrement())
+  tache_type    String   @db.VarChar(250)
+  code          String?  @unique @db.VarChar(20)
+  is_default    Boolean  @default(false)
+  is_facturable Boolean  @default(true)
+  couleur       String?  @default("#10B981") @db.VarChar(7)
+  ordre         Int      @default(0)
+  actif         Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now()) @updatedAt
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Relations
+  taches_projet TacheProjet[]
+  affectations  TacheProjetSalarie[]
+  pointages     SalariePointage[]
 
-  @@map("password_reset_tokens")
+  @@index([code])
+  @@index([is_default])
+  @@map("tache_type")
+}
+
+model TacheProjet {
+  id            BigInt   @id @default(autoincrement())
+  projet_id     BigInt
+  tache_type_id BigInt
+  heures_prevues Int     @default(0)
+  taux_horaire  Decimal? @default(50.00) @db.Decimal(10, 2)
+  description   String?  @db.Text
+  actif         Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now()) @updatedAt
+
+  // Relations
+  projet     Projet               @relation(fields: [projet_id], references: [id], onDelete: Cascade)
+  tache_type TacheType            @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
+  affectations TacheProjetSalarie[]
+
+  @@unique([projet_id, tache_type_id])
+  @@index([projet_id])
+  @@index([tache_type_id])
+  @@map("tache_projet")
+}
+
+model TacheProjetSalarie {
+  id               BigInt   @id @default(autoincrement())
+  projet_id        BigInt
+  tache_type_id    BigInt
+  tache_projet_id  BigInt
+  salarie_id       BigInt
+  date_affectation DateTime @default(now()) @db.Date
+  actif            Boolean  @default(true)
+  created_at       DateTime @default(now())
+
+  // Relations
+  projet      Projet      @relation(fields: [projet_id], references: [id], onDelete: Cascade)
+  tache_type  TacheType   @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
+  tache_projet TacheProjet @relation(fields: [tache_projet_id], references: [id], onDelete: Cascade)
+  salarie     Salarie     @relation(fields: [salarie_id], references: [id], onDelete: Cascade)
+
+  @@unique([tache_projet_id, salarie_id])
+  @@index([projet_id])
+  @@index([salarie_id])
+  @@index([tache_projet_id])
+  @@map("tache_projet_salarie")
+}
+
+model SalariePointage {
+  id                BigInt               @id @default(autoincrement())
+  salarie_id        BigInt
+  projet_id         BigInt
+  tache_type_id     BigInt
+  annee             Int                  @db.SmallInt
+  semaine           Int                  @db.SmallInt
+  heure_lundi       Decimal?             @default(0) @db.Decimal(4, 2)
+  heure_mardi       Decimal?             @default(0) @db.Decimal(4, 2)
+  heure_mercredi    Decimal?             @default(0) @db.Decimal(4, 2)
+  heure_jeudi       Decimal?             @default(0) @db.Decimal(4, 2)
+  heure_vendredi    Decimal?             @default(0) @db.Decimal(4, 2)
+  heure_samedi      Decimal?             @default(0) @db.Decimal(4, 2)
+  heure_dimanche    Decimal?             @default(0) @db.Decimal(4, 2)
+  date_lundi        DateTime?            @db.Date
+  date_mardi        DateTime?            @db.Date
+  date_mercredi     DateTime?            @db.Date
+  date_jeudi        DateTime?            @db.Date
+  date_vendredi     DateTime?            @db.Date
+  date_samedi       DateTime?            @db.Date
+  date_dimanche     DateTime?            @db.Date
+  commentaire       String?              @db.Text
+  validation_status ValidationStatusEnum @default(Brouillon)
+  valide_par        BigInt?
+  date_validation   DateTime?
+  created_at        DateTime             @default(now())
+  updated_at        DateTime             @default(now()) @updatedAt
+
+  // Relations
+  salarie    Salarie   @relation(fields: [salarie_id], references: [id], onDelete: Cascade)
+  projet     Projet    @relation(fields: [projet_id], references: [id], onDelete: Cascade)
+  tache_type TacheType @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
+  validateur Salarie?  @relation("PointageValidateur", fields: [valide_par], references: [id], onDelete: SetNull)
+
+  @@unique([salarie_id, projet_id, tache_type_id, annee, semaine])
+  @@index([salarie_id])
+  @@index([projet_id])
+  @@index([annee, semaine])
+  @@index([validation_status])
+  @@map("salarie_pointage")
+}
+
+model SalarieCp {
+  id                BigInt               @id @default(autoincrement())
+  salarie_id        BigInt
+  annee             Int                  @db.SmallInt
+  semaine           Int                  @db.SmallInt
+  cp_lundi          Boolean              @default(false)
+  cp_mardi          Boolean              @default(false)
+  cp_mercredi       Boolean              @default(false)
+  cp_jeudi          Boolean              @default(false)
+  cp_vendredi       Boolean              @default(false)
+  cp_samedi         Boolean              @default(false)
+  cp_dimanche       Boolean              @default(false)
+  date_lundi        DateTime?            @db.Date
+  date_mardi        DateTime?            @db.Date
+  date_mercredi     DateTime?            @db.Date
+  date_jeudi        DateTime?            @db.Date
+  date_vendredi     DateTime?            @db.Date
+  date_samedi       DateTime?            @db.Date
+  date_dimanche     DateTime?            @db.Date
+  type_conge        CongeTypeEnum        @default(CP)
+  motif             String?              @db.VarChar(255)
+  validation_status ValidationStatusEnum @default(Brouillon)
+  valide_par        BigInt?
+  date_validation   DateTime?
+  created_at        DateTime             @default(now())
+  updated_at        DateTime             @default(now()) @updatedAt
+
+  // Relations
+  salarie    Salarie  @relation(fields: [salarie_id], references: [id], onDelete: Cascade)
+  validateur Salarie? @relation("CongeValidateur", fields: [valide_par], references: [id], onDelete: SetNull)
+
+  @@unique([salarie_id, annee, semaine, type_conge])
+  @@index([salarie_id])
+  @@index([annee, semaine])
+  @@index([validation_status])
+  @@map("salarie_cp")
+}
+
+model JourFerie {
+  id         BigInt   @id @default(autoincrement())
+  date       DateTime @unique @db.Date
+  nom        String   @db.VarChar(100)
+  pays_id    BigInt?
+  created_at DateTime @default(now())
+
+  // Relations
+  pays Pays? @relation(fields: [pays_id], references: [id], onDelete: Cascade)
+
+  @@index([date])
+  @@map("jour_ferie")
+}
+
+model ValidationSemaine {
+  id                   BigInt               @id @default(autoincrement())
+  salarie_id           BigInt
+  annee                Int                  @db.SmallInt
+  semaine              Int                  @db.SmallInt
+  status               ValidationStatusEnum @default(Brouillon)
+  total_heures         Decimal?             @default(0) @db.Decimal(5, 2)
+  valide_par           BigInt?
+  date_soumission      DateTime?
+  date_validation      DateTime?
+  commentaire_validation String?            @db.Text
+  created_at           DateTime             @default(now())
+  updated_at           DateTime             @default(now()) @updatedAt
+
+  // Relations
+  salarie    Salarie  @relation("ValidationSalarie", fields: [salarie_id], references: [id], onDelete: Cascade)
+  validateur Salarie? @relation("ValidationValidateur", fields: [valide_par], references: [id], onDelete: SetNull)
+
+  @@unique([salarie_id, annee, semaine])
+  @@index([salarie_id])
+  @@index([annee, semaine])
+  @@map("validation_semaine")
+}
+
+model Notification {
+  id         BigInt   @id @default(autoincrement())
+  salarie_id BigInt
+  titre      String   @db.VarChar(100)
+  message    String   @db.Text
+  type       String   @default("info") @db.VarChar(50)
+  lu         Boolean  @default(false)
+  lien       String?  @db.VarChar(255)
+  created_at DateTime @default(now())
+
+  // Relations
+  salarie Salarie @relation(fields: [salarie_id], references: [id], onDelete: Cascade)
+
+  @@index([salarie_id])
+  @@index([lu])
+  @@map("notification")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  table_name String   @db.VarChar(50)
+  record_id  BigInt
+  action     String   @db.VarChar(20)
+  old_values Json?
+  new_values Json?
+  salarie_id BigInt?
+  ip_address String?  @db.VarChar(45)
+  created_at DateTime @default(now())
+
+  // Relations
+  salarie Salarie? @relation(fields: [salarie_id], references: [id], onDelete: SetNull)
+
+  @@index([table_name])
+  @@index([record_id])
+  @@index([salarie_id])
+  @@index([created_at])
+  @@map("audit_log")
+}
+
+model Parametre {
+  id          BigInt   @id @default(autoincrement())
+  cle         String   @unique @db.VarChar(100)
+  valeur      String?  @db.Text
+  description String?  @db.VarChar(255)
+  type        String   @default("string") @db.VarChar(20)
+  modifiable  Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now()) @updatedAt
+
+  @@map("parametre")
 }

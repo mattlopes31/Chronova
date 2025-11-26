@@ -1,380 +1,264 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { startOfMonth, endOfMonth, startOfYear, endOfYear, format } from 'date-fns';
-import { authenticate, requireAdmin, AuthRequest } from '../middlewares/auth.js';
+import { authMiddleware, managerMiddleware, AuthRequest } from '../middlewares/auth';
 
-const prisma = new PrismaClient();
 const router = Router();
+const prisma = new PrismaClient();
 
-// Get dashboard summary (admin only)
-router.get('/summary', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+const serializeBigInt = (obj: any): any => {
+  return JSON.parse(JSON.stringify(obj, (key, value) =>
+    typeof value === 'bigint' ? value.toString() : value
+  ));
+};
+
+// Obtenir l'année et la semaine courante
+function getCurrentWeek(): { annee: number; semaine: number } {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const days = Math.floor((now.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+  const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+  return { annee: now.getFullYear(), semaine: weekNumber };
+}
+
+// GET /api/dashboard/stats - Statistiques globales (Admin/Manager)
+router.get('/stats', authMiddleware, managerMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { month, year } = req.query;
+    const { annee, semaine } = getCurrentWeek();
 
-    const now = new Date();
-    const targetYear = year ? parseInt(year as string) : now.getFullYear();
-    const targetMonth = month ? parseInt(month as string) - 1 : now.getMonth();
-
-    const monthStart = startOfMonth(new Date(targetYear, targetMonth));
-    const monthEnd = endOfMonth(new Date(targetYear, targetMonth));
-    const yearStart = startOfYear(new Date(targetYear, 0));
-    const yearEnd = endOfYear(new Date(targetYear, 0));
-
-    // Total hours this month
-    const monthlyHours = await prisma.timeEntry.aggregate({
-      where: {
-        date: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
-      },
-      _sum: { hours: true },
+    // Nombre de salariés actifs
+    const nbSalaries = await prisma.salarie.count({
+      where: { actif: true }
     });
 
-    // Total hours this year
-    const yearlyHours = await prisma.timeEntry.aggregate({
-      where: {
-        date: {
-          gte: yearStart,
-          lte: yearEnd,
-        },
-      },
-      _sum: { hours: true },
+    // Nombre de projets en cours
+    const nbProjets = await prisma.projet.count({
+      where: { 
+        actif: true,
+        archive: false
+      }
     });
 
-    // Active employees count
-    const employeesCount = await prisma.user.count({
-      where: { isActive: true, role: 'EMPLOYEE' },
+    // Nombre de clients actifs
+    const nbClients = await prisma.client.count({
+      where: { actif: true }
     });
 
-    // Active projects count
-    const projectsCount = await prisma.project.count({
-      where: { status: 'ACTIVE' },
+    // Pointages en attente de validation
+    const nbPointagesEnAttente = await prisma.validationSemaine.count({
+      where: { status: 'Soumis' }
     });
 
-    // Pending leave requests
-    const pendingLeaves = await prisma.leaveRequest.count({
-      where: { status: 'PENDING' },
+    // Congés en attente
+    const nbCongesEnAttente = await prisma.salarieCp.count({
+      where: { validation_status: 'Soumis' }
     });
 
-    // Hours by project this month
-    const hoursByProject = await prisma.timeEntry.groupBy({
-      by: ['projectId'],
-      where: {
-        date: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
-      },
-      _sum: { hours: true },
+    // Total heures cette semaine
+    const heuresSemaine = await prisma.salariePointage.findMany({
+      where: { annee, semaine }
     });
 
-    const projectsData = await prisma.project.findMany({
-      where: {
-        id: { in: hoursByProject.map((h) => h.projectId) },
-      },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-      },
-    });
+    const totalHeuresSemaine = heuresSemaine.reduce((sum, p) => {
+      return sum + 
+        Number(p.heure_lundi || 0) +
+        Number(p.heure_mardi || 0) +
+        Number(p.heure_mercredi || 0) +
+        Number(p.heure_jeudi || 0) +
+        Number(p.heure_vendredi || 0) +
+        Number(p.heure_samedi || 0) +
+        Number(p.heure_dimanche || 0);
+    }, 0);
 
-    const projectsMap = new Map(projectsData.map((p) => [p.id, p]));
-
-    // Hours by task type this month
-    const hoursByTask = await prisma.timeEntry.groupBy({
-      by: ['taskId'],
-      where: {
-        date: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
-      },
-      _sum: { hours: true },
-    });
-
-    const tasksData = await prisma.task.findMany({
-      where: {
-        id: { in: hoursByTask.map((h) => h.taskId) },
-      },
-      select: {
-        id: true,
-        label: true,
-        code: true,
-      },
-    });
-
-    const tasksMap = new Map(tasksData.map((t) => [t.id, t]));
-
-    // Hours by employee this month
-    const hoursByEmployee = await prisma.timeEntry.groupBy({
-      by: ['userId'],
-      where: {
-        date: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
-      },
-      _sum: { hours: true },
-    });
-
-    const employeesData = await prisma.user.findMany({
-      where: {
-        id: { in: hoursByEmployee.map((h) => h.userId) },
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-      },
-    });
-
-    const employeesMap = new Map(employeesData.map((e) => [e.id, e]));
-
-    return res.json({
-      totals: {
-        monthlyHours: monthlyHours._sum.hours || 0,
-        yearlyHours: yearlyHours._sum.hours || 0,
-        employeesCount,
-        projectsCount,
-        pendingLeaves,
-      },
-      hoursByProject: hoursByProject.map((h) => ({
-        project: projectsMap.get(h.projectId),
-        hours: h._sum.hours || 0,
-      })),
-      hoursByTask: hoursByTask.map((h) => ({
-        task: tasksMap.get(h.taskId),
-        hours: h._sum.hours || 0,
-      })),
-      hoursByEmployee: hoursByEmployee.map((h) => ({
-        employee: employeesMap.get(h.userId),
-        hours: h._sum.hours || 0,
-      })),
+    res.json({
+      nb_salaries: nbSalaries,
+      nb_projets: nbProjets,
+      nb_clients: nbClients,
+      nb_pointages_en_attente: nbPointagesEnAttente,
+      nb_conges_en_attente: nbCongesEnAttente,
+      total_heures_semaine: totalHeuresSemaine,
+      semaine_courante: { annee, semaine }
     });
   } catch (error) {
-    console.error('Dashboard error:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    console.error('Erreur stats dashboard:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
-// Get detailed report (admin only)
-router.get('/report', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+// GET /api/dashboard/heures-projet - Heures par projet
+router.get('/heures-projet', authMiddleware, managerMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { startDate, endDate, userId, projectId, taskId, groupBy } = req.query;
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({ error: 'startDate et endDate sont requis' });
-    }
-
-    let where: any = {
-      date: {
-        gte: new Date(startDate as string),
-        lte: new Date(endDate as string),
-      },
-    };
-
-    if (userId) where.userId = userId;
-    if (projectId) where.projectId = projectId;
-    if (taskId) where.taskId = taskId;
-
-    // Get all entries with details
-    const entries = await prisma.timeEntry.findMany({
-      where,
+    const projets = await prisma.projet.findMany({
+      where: { actif: true, archive: false },
       include: {
-        user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-        project: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            estimatedHours: true,
-          },
-        },
-        task: {
-          select: {
-            id: true,
-            code: true,
-            label: true,
-            estimatedHours: true,
-          },
-        },
-      },
-      orderBy: [{ date: 'asc' }, { user: { lastName: 'asc' } }],
+        client: { select: { nom: true } },
+        pointages: true
+      }
     });
 
-    // Group data based on groupBy parameter
-    let grouped: any = {};
+    const result = projets.map(projet => {
+      const heuresRealisees = projet.pointages.reduce((sum, p) => {
+        return sum + 
+          Number(p.heure_lundi || 0) +
+          Number(p.heure_mardi || 0) +
+          Number(p.heure_mercredi || 0) +
+          Number(p.heure_jeudi || 0) +
+          Number(p.heure_vendredi || 0) +
+          Number(p.heure_samedi || 0) +
+          Number(p.heure_dimanche || 0);
+      }, 0);
 
-    if (groupBy === 'employee') {
-      entries.forEach((entry) => {
-        const key = entry.userId;
-        if (!grouped[key]) {
-          grouped[key] = {
-            employee: entry.user,
-            totalHours: 0,
-            entries: [],
-          };
-        }
-        grouped[key].totalHours += entry.hours;
-        grouped[key].entries.push(entry);
-      });
-    } else if (groupBy === 'project') {
-      entries.forEach((entry) => {
-        const key = entry.projectId;
-        if (!grouped[key]) {
-          grouped[key] = {
-            project: entry.project,
-            totalHours: 0,
-            entries: [],
-          };
-        }
-        grouped[key].totalHours += entry.hours;
-        grouped[key].entries.push(entry);
-      });
-    } else if (groupBy === 'task') {
-      entries.forEach((entry) => {
-        const key = entry.taskId;
-        if (!grouped[key]) {
-          grouped[key] = {
-            task: entry.task,
-            totalHours: 0,
-            entries: [],
-          };
-        }
-        grouped[key].totalHours += entry.hours;
-        grouped[key].entries.push(entry);
-      });
-    } else if (groupBy === 'date') {
-      entries.forEach((entry) => {
-        const key = format(entry.date, 'yyyy-MM-dd');
-        if (!grouped[key]) {
-          grouped[key] = {
-            date: key,
-            totalHours: 0,
-            entries: [],
-          };
-        }
-        grouped[key].totalHours += entry.hours;
-        grouped[key].entries.push(entry);
-      });
-    } else {
-      // No grouping
-      grouped = { all: { entries, totalHours: entries.reduce((s, e) => s + e.hours, 0) } };
-    }
-
-    const totalHours = entries.reduce((sum, entry) => sum + entry.hours, 0);
-
-    return res.json({
-      totalHours,
-      entriesCount: entries.length,
-      grouped: Object.values(grouped),
+      return {
+        id: projet.id,
+        nom: projet.nom,
+        code_projet: projet.code_projet,
+        client: projet.client?.nom,
+        heures_prevues: Number(projet.budget_heures || 0),
+        heures_realisees: heuresRealisees,
+        pourcentage: projet.budget_heures 
+          ? Math.round((heuresRealisees / Number(projet.budget_heures)) * 100) 
+          : 0
+      };
     });
+
+    res.json(serializeBigInt(result));
   } catch (error) {
-    console.error('Report error:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    console.error('Erreur heures projet:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
-// Get monthly trend (admin only)
-router.get('/trend', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
+// GET /api/dashboard/validations - Validations en attente
+router.get('/validations', authMiddleware, managerMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { year } = req.query;
-    const targetYear = year ? parseInt(year as string) : new Date().getFullYear();
-
-    const monthlyData = [];
-
-    for (let month = 0; month < 12; month++) {
-      const monthStart = startOfMonth(new Date(targetYear, month));
-      const monthEnd = endOfMonth(new Date(targetYear, month));
-
-      const hours = await prisma.timeEntry.aggregate({
-        where: {
-          date: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
-        },
-        _sum: { hours: true },
-      });
-
-      monthlyData.push({
-        month: month + 1,
-        monthName: format(monthStart, 'MMM'),
-        hours: hours._sum.hours || 0,
-      });
-    }
-
-    return res.json(monthlyData);
-  } catch (error) {
-    return res.status(500).json({ error: 'Erreur serveur' });
-  }
-});
-
-// Compare estimated vs actual (admin only)
-router.get('/comparison', authenticate, requireAdmin, async (req: AuthRequest, res: Response) => {
-  try {
-    // Get all active projects with estimated hours
-    const projects = await prisma.project.findMany({
-      where: { status: 'ACTIVE' },
+    const validations = await prisma.validationSemaine.findMany({
+      where: { status: 'Soumis' },
       include: {
-        tasks: true,
+        salarie: {
+          select: { id: true, nom: true, prenom: true }
+        }
       },
+      orderBy: [{ annee: 'asc' }, { semaine: 'asc' }]
     });
 
-    const comparison = await Promise.all(
-      projects.map(async (project) => {
-        const actualHours = await prisma.timeEntry.aggregate({
-          where: { projectId: project.id },
-          _sum: { hours: true },
-        });
-
-        // Get task-level breakdown
-        const taskBreakdown = await Promise.all(
-          project.tasks.map(async (task) => {
-            const taskActual = await prisma.timeEntry.aggregate({
-              where: { taskId: task.id },
-              _sum: { hours: true },
-            });
-
-            return {
-              task: {
-                id: task.id,
-                code: task.code,
-                label: task.label,
-              },
-              estimated: task.estimatedHours || 0,
-              actual: taskActual._sum.hours || 0,
-              variance: (taskActual._sum.hours || 0) - (task.estimatedHours || 0),
-            };
-          })
-        );
-
-        return {
-          project: {
-            id: project.id,
-            code: project.code,
-            name: project.name,
-          },
-          estimated: project.estimatedHours || 0,
-          actual: actualHours._sum.hours || 0,
-          variance: (actualHours._sum.hours || 0) - (project.estimatedHours || 0),
-          taskBreakdown,
-        };
-      })
-    );
-
-    return res.json(comparison);
+    res.json(serializeBigInt(validations));
   } catch (error) {
-    return res.status(500).json({ error: 'Erreur serveur' });
+    console.error('Erreur validations:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
   }
 });
 
-export { router as dashboardRouter };
+// GET /api/dashboard/mes-stats - Stats personnelles du salarié connecté
+router.get('/mes-stats', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const salarie_id = req.user!.id;
+    const { annee, semaine } = getCurrentWeek();
+
+    // Heures cette semaine
+    const pointagesSemaine = await prisma.salariePointage.findMany({
+      where: { salarie_id, annee, semaine }
+    });
+
+    const heuresSemaine = pointagesSemaine.reduce((sum, p) => {
+      return sum + 
+        Number(p.heure_lundi || 0) +
+        Number(p.heure_mardi || 0) +
+        Number(p.heure_mercredi || 0) +
+        Number(p.heure_jeudi || 0) +
+        Number(p.heure_vendredi || 0) +
+        Number(p.heure_samedi || 0) +
+        Number(p.heure_dimanche || 0);
+    }, 0);
+
+    // Validation de la semaine
+    const validationSemaine = await prisma.validationSemaine.findUnique({
+      where: {
+        salarie_id_annee_semaine: { salarie_id, annee, semaine }
+      }
+    });
+
+    // Projets affectés
+    const affectations = await prisma.tacheProjetSalarie.findMany({
+      where: { salarie_id, actif: true },
+      include: {
+        projet: { select: { id: true, nom: true, code_projet: true } }
+      }
+    });
+
+    const projets = [...new Set(affectations.map(a => a.projet))];
+
+    // Heures ce mois
+    const debutMois = new Date();
+    debutMois.setDate(1);
+    const finMois = new Date(debutMois.getFullYear(), debutMois.getMonth() + 1, 0);
+
+    const pointagesMois = await prisma.salariePointage.findMany({
+      where: {
+        salarie_id,
+        annee: debutMois.getFullYear(),
+        date_lundi: {
+          gte: debutMois,
+          lte: finMois
+        }
+      }
+    });
+
+    const heuresMois = pointagesMois.reduce((sum, p) => {
+      return sum + 
+        Number(p.heure_lundi || 0) +
+        Number(p.heure_mardi || 0) +
+        Number(p.heure_mercredi || 0) +
+        Number(p.heure_jeudi || 0) +
+        Number(p.heure_vendredi || 0) +
+        Number(p.heure_samedi || 0) +
+        Number(p.heure_dimanche || 0);
+    }, 0);
+
+    res.json({
+      heures_semaine: heuresSemaine,
+      heures_mois: heuresMois,
+      status_semaine: validationSemaine?.status || 'Brouillon',
+      nb_projets: projets.length,
+      projets: serializeBigInt(projets),
+      semaine_courante: { annee, semaine }
+    });
+  } catch (error) {
+    console.error('Erreur mes stats:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// GET /api/dashboard/notifications - Notifications non lues
+router.get('/notifications', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const notifications = await prisma.notification.findMany({
+      where: { 
+        salarie_id: req.user!.id,
+        lu: false
+      },
+      orderBy: { created_at: 'desc' },
+      take: 10
+    });
+
+    res.json(serializeBigInt(notifications));
+  } catch (error) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// PUT /api/dashboard/notifications/:id/lue - Marquer comme lue
+router.put('/notifications/:id/lue', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = BigInt(req.params.id);
+
+    await prisma.notification.update({
+      where: { id },
+      data: { lu: true }
+    });
+
+    res.json({ message: 'Notification marquée comme lue' });
+  } catch (error) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+export default router;

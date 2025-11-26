@@ -1,187 +1,105 @@
-import { PrismaClient, Role, ProjectStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('🌱 Seeding Chronova database...');
 
-  // Create admin user
-  const adminPassword = await bcrypt.hash('Admin123!', 12);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@timetrack.com' },
-    update: {},
+  // Créer ou mettre à jour le compte admin
+  const adminPassword = await bcrypt.hash('Admin123!', 10);
+  
+  const admin = await prisma.salarie.upsert({
+    where: { email: 'admin@chronova.local' },
+    update: { 
+      password_hash: adminPassword,
+      actif: true 
+    },
     create: {
-      email: 'admin@timetrack.com',
-      password: adminPassword,
-      firstName: 'Admin',
-      lastName: 'TimeTrack',
-      role: Role.ADMIN,
+      email: 'admin@chronova.local',
+      password_hash: adminPassword,
+      nom: 'Admin',
+      prenom: 'Chronova',
+      role: 'Admin',
+      actif: true,
+      date_entree: new Date(),
     },
   });
-  console.log('✅ Admin user created:', admin.email);
 
-  // Create sample employees
-  const employeePassword = await bcrypt.hash('Employee123!', 12);
-  const employees = await Promise.all([
-    prisma.user.upsert({
-      where: { email: 'jean.dupont@timetrack.com' },
+  console.log('✅ Admin créé/mis à jour:', admin.email);
+
+  // Créer quelques salariés de test
+  const employeePassword = await bcrypt.hash('Test123!', 10);
+
+  const employee1 = await prisma.salarie.upsert({
+    where: { email: 'jean.dupont@chronova.local' },
+    update: { password_hash: employeePassword },
+    create: {
+      email: 'jean.dupont@chronova.local',
+      password_hash: employeePassword,
+      nom: 'Dupont',
+      prenom: 'Jean',
+      role: 'Salarie',
+      actif: true,
+      date_entree: new Date(),
+    },
+  });
+
+  const employee2 = await prisma.salarie.upsert({
+    where: { email: 'marie.martin@chronova.local' },
+    update: { password_hash: employeePassword },
+    create: {
+      email: 'marie.martin@chronova.local',
+      password_hash: employeePassword,
+      nom: 'Martin',
+      prenom: 'Marie',
+      role: 'Manager',
+      actif: true,
+      date_entree: new Date(),
+    },
+  });
+
+  console.log('✅ Employés créés:', employee1.email, employee2.email);
+
+  // Vérifier/créer un client de test
+  const client = await prisma.client.upsert({
+    where: { id: BigInt(1) },
+    update: {},
+    create: {
+      nom: 'Client Demo',
+      email: 'contact@clientdemo.fr',
+      ville: 'Paris',
+      actif: true,
+    },
+  });
+
+  console.log('✅ Client créé:', client.nom);
+
+  // Créer un projet de test
+  let projet;
+  try {
+    projet = await prisma.projet.upsert({
+      where: { id: BigInt(1) },
       update: {},
       create: {
-        email: 'jean.dupont@timetrack.com',
-        password: employeePassword,
-        firstName: 'Jean',
-        lastName: 'Dupont',
-        role: Role.EMPLOYEE,
-      },
-    }),
-    prisma.user.upsert({
-      where: { email: 'marie.martin@timetrack.com' },
-      update: {},
-      create: {
-        email: 'marie.martin@timetrack.com',
-        password: employeePassword,
-        firstName: 'Marie',
-        lastName: 'Martin',
-        role: Role.EMPLOYEE,
-      },
-    }),
-    prisma.user.upsert({
-      where: { email: 'pierre.durand@timetrack.com' },
-      update: {},
-      create: {
-        email: 'pierre.durand@timetrack.com',
-        password: employeePassword,
-        firstName: 'Pierre',
-        lastName: 'Durand',
-        role: Role.EMPLOYEE,
-      },
-    }),
-  ]);
-  console.log('✅ Sample employees created');
-
-  // Create sample projects
-  const projects = await Promise.all([
-    prisma.project.upsert({
-      where: { code: 'PRJ-001' },
-      update: {},
-      create: {
-        code: 'PRJ-001',
-        name: 'Installation Ligne Production A',
-        description: 'Installation complète de la ligne de production A avec système SCADA',
-        status: ProjectStatus.ACTIVE,
-        estimatedHours: 500,
-      },
-    }),
-    prisma.project.upsert({
-      where: { code: 'PRJ-002' },
-      update: {},
-      create: {
-        code: 'PRJ-002',
-        name: 'Mise à niveau Système B',
-        description: 'Mise à niveau du système de contrôle existant',
-        status: ProjectStatus.ACTIVE,
-        estimatedHours: 200,
-      },
-    }),
-    prisma.project.upsert({
-      where: { code: 'PRJ-003' },
-      update: {},
-      create: {
-        code: 'PRJ-003',
-        name: 'Maintenance Préventive Q1',
-        description: 'Maintenance préventive trimestrielle',
-        status: ProjectStatus.ACTIVE,
-        estimatedHours: 100,
-      },
-    }),
-  ]);
-  console.log('✅ Sample projects created');
-
-  // Create tasks for each project
-  const taskTypes = [
-    { code: 'CAB', label: 'Câblage', description: 'Travaux de câblage électrique', estimatedHours: 80 },
-    { code: 'SCADA', label: 'Programme SCADA', description: 'Développement et configuration SCADA', estimatedHours: 120 },
-    { code: 'SCHEMA', label: 'Schéma de câblage', description: 'Création des schémas électriques', estimatedHours: 40 },
-    { code: 'MES', label: 'Mise en service', description: 'Mise en service et tests', estimatedHours: 60 },
-    { code: 'DOC', label: 'Documentation', description: 'Rédaction de la documentation technique', estimatedHours: 20 },
-    { code: 'TEST', label: 'Tests & Validation', description: 'Tests fonctionnels et validation', estimatedHours: 40 },
-  ];
-
-  for (const project of projects) {
-    for (const taskType of taskTypes) {
-      await prisma.task.upsert({
-        where: {
-          projectId_code: {
-            projectId: project.id,
-            code: taskType.code,
-          },
-        },
-        update: {},
-        create: {
-          code: taskType.code,
-          label: taskType.label,
-          description: taskType.description,
-          estimatedHours: taskType.estimatedHours,
-          projectId: project.id,
-        },
-      });
-    }
-  }
-  console.log('✅ Tasks created for all projects');
-
-  // Assign employees to projects
-  for (const employee of employees) {
-    for (const project of projects) {
-      await prisma.projectAssignment.upsert({
-        where: {
-          userId_projectId: {
-            userId: employee.id,
-            projectId: project.id,
-          },
-        },
-        update: {},
-        create: {
-          userId: employee.id,
-          projectId: project.id,
-        },
-      });
-    }
-  }
-  console.log('✅ Employees assigned to projects');
-
-  // Create French public holidays for 2025
-  const holidays2025 = [
-    { date: new Date('2025-01-01'), name: 'Jour de l\'An' },
-    { date: new Date('2025-04-21'), name: 'Lundi de Pâques' },
-    { date: new Date('2025-05-01'), name: 'Fête du Travail' },
-    { date: new Date('2025-05-08'), name: 'Victoire 1945' },
-    { date: new Date('2025-05-29'), name: 'Ascension' },
-    { date: new Date('2025-06-09'), name: 'Lundi de Pentecôte' },
-    { date: new Date('2025-07-14'), name: 'Fête Nationale' },
-    { date: new Date('2025-08-15'), name: 'Assomption' },
-    { date: new Date('2025-11-01'), name: 'Toussaint' },
-    { date: new Date('2025-11-11'), name: 'Armistice' },
-    { date: new Date('2025-12-25'), name: 'Noël' },
-  ];
-
-  for (const holiday of holidays2025) {
-    await prisma.publicHoliday.upsert({
-      where: { date: holiday.date },
-      update: {},
-      create: {
-        date: holiday.date,
-        name: holiday.name,
-        year: 2025,
+        code_projet: 'PRJ-001',
+        nom: 'Projet Demo',
+        description: 'Projet de démonstration',
+        client_id: client.id,
+        actif: true,
+        start_date: new Date(),
       },
     });
+    console.log('✅ Projet créé:', projet.nom);
+  } catch (e) {
+    console.log('⚠️ Projet déjà existant ou erreur');
   }
-  console.log('✅ Public holidays 2025 created');
 
-  console.log('🎉 Seeding completed!');
-  console.log('\n📋 Default credentials:');
-  console.log('   Admin: admin@timetrack.com / Admin123!');
-  console.log('   Employee: jean.dupont@timetrack.com / Employee123!');
+  console.log('\n🎉 Seeding terminé!');
+  console.log('\n📋 Comptes disponibles:');
+  console.log('   Admin: admin@chronova.local / Admin123!');
+  console.log('   Manager: marie.martin@chronova.local / Test123!');
+  console.log('   Salarié: jean.dupont@chronova.local / Test123!');
 }
 
 main()
