@@ -2,169 +2,139 @@ import {
   format,
   startOfWeek,
   endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  eachDayOfInterval,
-  eachWeekOfInterval,
-  getWeek,
-  getYear,
   addWeeks,
   subWeeks,
+  getWeek,
+  getYear,
+  eachDayOfInterval,
+  parseISO,
+  addDays,
+  setWeek,
+  setYear,
   isWeekend,
   isSameDay,
-  isSameMonth,
-  parseISO,
-  addMonths,
-  subMonths,
-  getDay,
-  setDay,
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-export const formatDate = (date: Date | string, formatStr: string = 'dd/MM/yyyy') => {
+// Obtenir le lundi d'une semaine donnée
+export const getMondayOfWeek = (year: number, week: number): Date => {
+  // Créer une date dans l'année souhaitée
+  let date = new Date(year, 0, 4); // 4 janvier est toujours en semaine 1
+  date = setYear(date, year);
+  date = setWeek(date, week, { weekStartsOn: 1, locale: fr });
+  return startOfWeek(date, { weekStartsOn: 1 });
+};
+
+// Obtenir les jours de la semaine (lundi à dimanche)
+export const getWeekDays = (year: number, week: number): Date[] => {
+  const monday = getMondayOfWeek(year, week);
+  return eachDayOfInterval({
+    start: monday,
+    end: addDays(monday, 6),
+  });
+};
+
+// Obtenir semaine et année actuelles
+export const getCurrentWeek = (): { year: number; week: number } => {
+  const now = new Date();
+  return {
+    year: getYear(now),
+    week: getWeek(now, { weekStartsOn: 1, locale: fr }),
+  };
+};
+
+// Navigation entre semaines
+export const getNextWeek = (year: number, week: number): { year: number; week: number } => {
+  const monday = getMondayOfWeek(year, week);
+  const nextMonday = addWeeks(monday, 1);
+  return {
+    year: getYear(nextMonday),
+    week: getWeek(nextMonday, { weekStartsOn: 1, locale: fr }),
+  };
+};
+
+export const getPreviousWeek = (year: number, week: number): { year: number; week: number } => {
+  const monday = getMondayOfWeek(year, week);
+  const prevMonday = subWeeks(monday, 1);
+  return {
+    year: getYear(prevMonday),
+    week: getWeek(prevMonday, { weekStartsOn: 1, locale: fr }),
+  };
+};
+
+// Formatage
+export const formatDate = (date: Date | string, formatStr: string = 'dd/MM/yyyy'): string => {
   const d = typeof date === 'string' ? parseISO(date) : date;
   return format(d, formatStr, { locale: fr });
 };
 
-export const formatDateLong = (date: Date | string) => {
-  const d = typeof date === 'string' ? parseISO(date) : date;
-  return format(d, 'EEEE d MMMM yyyy', { locale: fr });
+export const formatWeekLabel = (year: number, week: number): string => {
+  const monday = getMondayOfWeek(year, week);
+  const sunday = addDays(monday, 6);
+  return `Semaine ${week} - ${format(monday, 'd MMM', { locale: fr })} au ${format(sunday, 'd MMM yyyy', { locale: fr })}`;
 };
 
-export const getWeekNumber = (date: Date) => {
-  return getWeek(date, { weekStartsOn: 1, locale: fr });
+export const getDayName = (dayIndex: number): string => {
+  const days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+  return days[dayIndex] || '';
 };
 
-export const getWeekYear = (date: Date) => {
-  return getYear(date);
+export const getDayShortName = (dayIndex: number): string => {
+  const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+  return days[dayIndex] || '';
 };
 
-export const getWeekRange = (weekNumber: number, year: number) => {
-  // Get first day of the year
-  const firstDayOfYear = new Date(year, 0, 1);
-  // Calculate the date of week 1
-  const startOfWeek1 = startOfWeek(firstDayOfYear, { weekStartsOn: 1 });
-  // Add weeks to get to the desired week
-  const targetWeekStart = addWeeks(startOfWeek1, weekNumber - 1);
-  const targetWeekEnd = endOfWeek(targetWeekStart, { weekStartsOn: 1 });
-
-  return {
-    start: targetWeekStart,
-    end: targetWeekEnd,
-  };
-};
-
-export const getWeekDays = (weekNumber: number, year: number) => {
-  const { start, end } = getWeekRange(weekNumber, year);
-  return eachDayOfInterval({ start, end });
-};
-
-export const getCurrentWeek = () => {
-  const now = new Date();
-  return {
-    weekNumber: getWeekNumber(now),
-    year: getWeekYear(now),
-  };
-};
-
-export const getNextWeek = (weekNumber: number, year: number) => {
-  const { start } = getWeekRange(weekNumber, year);
-  const nextWeekStart = addWeeks(start, 1);
-  return {
-    weekNumber: getWeekNumber(nextWeekStart),
-    year: getWeekYear(nextWeekStart),
-  };
-};
-
-export const getPreviousWeek = (weekNumber: number, year: number) => {
-  const { start } = getWeekRange(weekNumber, year);
-  const prevWeekStart = subWeeks(start, 1);
-  return {
-    weekNumber: getWeekNumber(prevWeekStart),
-    year: getWeekYear(prevWeekStart),
-  };
-};
-
-// Get weeks for a month, including partial weeks from adjacent months
-export const getMonthWeeks = (month: number, year: number) => {
-  const monthStart = startOfMonth(new Date(year, month));
-  const monthEnd = endOfMonth(new Date(year, month));
-
-  // Get first Monday on or before month start
-  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  // Get last Sunday on or after month end
-  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-
-  const weeks = eachWeekOfInterval(
-    { start: calendarStart, end: calendarEnd },
-    { weekStartsOn: 1 }
-  );
-
-  return weeks.map((weekStart) => {
-    const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-    const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
-    const weekNumber = getWeekNumber(weekStart);
-    const weekYear = getWeekYear(weekStart);
-
-    // Check if this week should be shown for this month
-    // A week belongs to a month if its Thursday is in that month (ISO week rule)
-    const thursday = setDay(weekStart, 4, { weekStartsOn: 1 });
-    const belongsToMonth = isSameMonth(thursday, monthStart);
-
-    return {
-      weekNumber,
-      year: weekYear,
-      days,
-      weekStart,
-      weekEnd,
-      belongsToMonth,
-    };
-  }).filter((week) => week.belongsToMonth);
-};
-
-export const isHoliday = (date: Date, holidays: Array<{ date: string }>) => {
+// Vérifications
+export const isHoliday = (date: Date, holidays: Array<{ date: string }>): boolean => {
   return holidays.some((h) => isSameDay(parseISO(h.date), date));
 };
 
-export const isLeaveDay = (date: Date, userId: string, leaves: Array<{ date: string; userId: string }>) => {
-  return leaves.some((l) => l.userId === userId && isSameDay(parseISO(l.date), date));
+export const getHolidayName = (date: Date, holidays: Array<{ date: string; libelle: string }>): string | null => {
+  const holiday = holidays.find((h) => isSameDay(parseISO(h.date), date));
+  return holiday?.libelle || null;
 };
 
-export const isWorkDay = (date: Date) => {
-  return !isWeekend(date);
+// Liste des mois
+export const getMonths = (): Array<{ value: number; label: string }> => {
+  return [
+    { value: 1, label: 'Janvier' },
+    { value: 2, label: 'Février' },
+    { value: 3, label: 'Mars' },
+    { value: 4, label: 'Avril' },
+    { value: 5, label: 'Mai' },
+    { value: 6, label: 'Juin' },
+    { value: 7, label: 'Juillet' },
+    { value: 8, label: 'Août' },
+    { value: 9, label: 'Septembre' },
+    { value: 10, label: 'Octobre' },
+    { value: 11, label: 'Novembre' },
+    { value: 12, label: 'Décembre' },
+  ];
 };
 
-export const formatWeekLabel = (weekNumber: number, year: number) => {
-  const { start, end } = getWeekRange(weekNumber, year);
-  return `Semaine ${weekNumber} (${format(start, 'd MMM', { locale: fr })} - ${format(end, 'd MMM yyyy', { locale: fr })})`;
+// Liste des années (5 ans en arrière, 1 an en avant)
+export const getYears = (): Array<{ value: number; label: string }> => {
+  const currentYear = new Date().getFullYear();
+  const years = [];
+  for (let y = currentYear - 5; y <= currentYear + 1; y++) {
+    years.push({ value: y, label: y.toString() });
+  }
+  return years;
 };
 
-export const formatMonthYear = (month: number, year: number) => {
-  return format(new Date(year, month), 'MMMM yyyy', { locale: fr });
+// Liste des semaines d'une année
+export const getWeeksOfYear = (year: number): Array<{ value: number; label: string }> => {
+  const weeks = [];
+  // On peut avoir 52 ou 53 semaines selon l'année
+  const maxWeeks = getWeek(new Date(year, 11, 31), { weekStartsOn: 1, locale: fr });
+  for (let w = 1; w <= maxWeeks; w++) {
+    const monday = getMondayOfWeek(year, w);
+    weeks.push({
+      value: w,
+      label: `S${w} - ${format(monday, 'dd/MM', { locale: fr })}`,
+    });
+  }
+  return weeks;
 };
 
-export const getNextMonth = (month: number, year: number) => {
-  const date = addMonths(new Date(year, month), 1);
-  return {
-    month: date.getMonth(),
-    year: date.getFullYear(),
-  };
-};
-
-export const getPreviousMonth = (month: number, year: number) => {
-  const date = subMonths(new Date(year, month), 1);
-  return {
-    month: date.getMonth(),
-    year: date.getFullYear(),
-  };
-};
-
-export const getDayName = (date: Date) => {
-  return format(date, 'EEEE', { locale: fr });
-};
-
-export const getDayShortName = (date: Date) => {
-  return format(date, 'EEE', { locale: fr });
-};
-
-export { isSameDay, isSameMonth, isWeekend, parseISO, format };
+export { parseISO, format, isSameDay, isWeekend };

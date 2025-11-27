@@ -1,8 +1,8 @@
 import { forwardRef, ButtonHTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { clsx } from 'clsx';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 
-// Button
+// ============ BUTTON ============
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
@@ -14,11 +14,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
     
     const variants = {
-      primary: 'bg-gradient-to-r from-primary-500 to-accent-500 text-white hover:from-primary-600 hover:to-accent-600 focus:ring-primary-500 shadow-md hover:shadow-lg',
-      secondary: 'bg-neutral-100 text-neutral-900 hover:bg-neutral-200 focus:ring-neutral-500',
-      outline: 'border-2 border-primary-500 text-primary-500 hover:bg-primary-50 focus:ring-primary-500',
-      ghost: 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 focus:ring-neutral-500',
-      danger: 'bg-red-500 text-white hover:bg-red-600 focus:ring-red-500',
+      primary: 'bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500 shadow-sm hover:shadow',
+      secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500',
+      outline: 'border-2 border-primary-500 text-primary-600 hover:bg-primary-50 focus:ring-primary-500',
+      ghost: 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:ring-gray-500',
+      danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
     };
     
     const sizes = {
@@ -42,7 +42,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 );
 Button.displayName = 'Button';
 
-// Input
+// ============ INPUT ============
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
@@ -51,9 +51,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ className, label, error, id, ...props }, ref) => {
     return (
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {label && (
-          <label htmlFor={id} className="block text-sm font-medium text-neutral-700">
+          <label htmlFor={id} className="block text-sm font-medium text-gray-700">
             {label}
           </label>
         )}
@@ -61,12 +61,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           id={id}
           className={clsx(
-            'w-full px-4 py-2.5 rounded-lg border bg-white transition-all duration-200',
+            'w-full px-3 py-2 rounded-lg border bg-white transition-all duration-200',
             'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent',
-            'placeholder:text-neutral-400',
-            error
-              ? 'border-red-500 focus:ring-red-500'
-              : 'border-neutral-300 hover:border-neutral-400',
+            'placeholder:text-gray-400',
+            error ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 hover:border-gray-400',
             className
           )}
           {...props}
@@ -78,19 +76,19 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 );
 Input.displayName = 'Input';
 
-// Select
+// ============ SELECT ============
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string | number; label: string }>;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, label, error, id, options, ...props }, ref) => {
     return (
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {label && (
-          <label htmlFor={id} className="block text-sm font-medium text-neutral-700">
+          <label htmlFor={id} className="block text-sm font-medium text-gray-700">
             {label}
           </label>
         )}
@@ -98,11 +96,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           ref={ref}
           id={id}
           className={clsx(
-            'w-full px-4 py-2.5 rounded-lg border bg-white transition-all duration-200',
+            'w-full px-3 py-2 rounded-lg border bg-white transition-all duration-200',
             'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent',
-            error
-              ? 'border-red-500 focus:ring-red-500'
-              : 'border-neutral-300 hover:border-neutral-400',
+            error ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 hover:border-gray-400',
             className
           )}
           {...props}
@@ -120,43 +116,34 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 );
 Select.displayName = 'Select';
 
-// Textarea
-interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+// ============ CHECKBOX ============
+interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
-  error?: string;
 }
 
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ className, label, error, id, ...props }, ref) => {
+export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
+  ({ className, label, id, ...props }, ref) => {
     return (
-      <div className="space-y-1.5">
-        {label && (
-          <label htmlFor={id} className="block text-sm font-medium text-neutral-700">
-            {label}
-          </label>
-        )}
-        <textarea
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
           ref={ref}
+          type="checkbox"
           id={id}
           className={clsx(
-            'w-full px-4 py-2.5 rounded-lg border bg-white transition-all duration-200 resize-none',
-            'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent',
-            'placeholder:text-neutral-400',
-            error
-              ? 'border-red-500 focus:ring-red-500'
-              : 'border-neutral-300 hover:border-neutral-400',
+            'w-4 h-4 rounded border-gray-300 text-primary-600',
+            'focus:ring-primary-500 focus:ring-offset-0',
             className
           )}
           {...props}
         />
-        {error && <p className="text-sm text-red-500">{error}</p>}
-      </div>
+        {label && <span className="text-sm text-gray-700">{label}</span>}
+      </label>
     );
   }
 );
-Textarea.displayName = 'Textarea';
+Checkbox.displayName = 'Checkbox';
 
-// Card
+// ============ CARD ============
 interface CardProps {
   children: React.ReactNode;
   className?: string;
@@ -167,8 +154,8 @@ export const Card = ({ children, className, hover = false }: CardProps) => {
   return (
     <div
       className={clsx(
-        'bg-white rounded-xl border border-neutral-200 shadow-sm',
-        hover && 'hover:shadow-md hover:border-neutral-300 transition-all duration-200',
+        'bg-white rounded-xl border border-gray-200 shadow-sm',
+        hover && 'hover:shadow-md hover:border-gray-300 transition-all duration-200',
         className
       )}
     >
@@ -177,7 +164,7 @@ export const Card = ({ children, className, hover = false }: CardProps) => {
   );
 };
 
-// Badge
+// ============ BADGE ============
 interface BadgeProps {
   children: React.ReactNode;
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info';
@@ -186,7 +173,7 @@ interface BadgeProps {
 
 export const Badge = ({ children, variant = 'default', className }: BadgeProps) => {
   const variants = {
-    default: 'bg-neutral-100 text-neutral-700',
+    default: 'bg-gray-100 text-gray-700',
     success: 'bg-green-100 text-green-700',
     warning: 'bg-amber-100 text-amber-700',
     danger: 'bg-red-100 text-red-700',
@@ -206,13 +193,13 @@ export const Badge = ({ children, variant = 'default', className }: BadgeProps) 
   );
 };
 
-// Modal
+// ============ MODAL ============
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
 }
 
 export const Modal = ({ isOpen, onClose, title, children, size = 'md' }: ModalProps) => {
@@ -221,8 +208,9 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md' }: ModalPr
   const sizes = {
     sm: 'max-w-sm',
     md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
+    full: 'max-w-6xl',
   };
   
   return (
@@ -238,25 +226,23 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'md' }: ModalPr
             sizes[size]
           )}
         >
-          <div className="flex items-center justify-between p-6 border-b border-neutral-200">
-            <h2 className="text-xl font-semibold text-neutral-900">{title}</h2>
+          <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
             <button
               onClick={onClose}
-              className="p-2 text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors"
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-5 h-5" />
             </button>
           </div>
-          <div className="p-6">{children}</div>
+          <div className="p-4">{children}</div>
         </div>
       </div>
     </div>
   );
 };
 
-// Spinner
+// ============ SPINNER ============
 export const Spinner = ({ className }: { className?: string }) => {
   return (
     <div className={clsx('flex items-center justify-center', className)}>
@@ -265,7 +251,7 @@ export const Spinner = ({ className }: { className?: string }) => {
   );
 };
 
-// Empty State
+// ============ EMPTY STATE ============
 interface EmptyStateProps {
   icon?: React.ReactNode;
   title: string;
@@ -276,10 +262,53 @@ interface EmptyStateProps {
 export const EmptyState = ({ icon, title, description, action }: EmptyStateProps) => {
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-      {icon && <div className="mb-4 text-neutral-400">{icon}</div>}
-      <h3 className="text-lg font-medium text-neutral-900">{title}</h3>
-      {description && <p className="mt-1 text-sm text-neutral-500">{description}</p>}
+      {icon && <div className="mb-4 text-gray-400">{icon}</div>}
+      <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+      {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
+};
+
+// ============ TABLE ============
+interface TableProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+export const Table = ({ children, className }: TableProps) => {
+  return (
+    <div className={clsx('overflow-x-auto', className)}>
+      <table className="w-full">{children}</table>
+    </div>
+  );
+};
+
+export const TableHead = ({ children, className }: TableProps) => {
+  return <thead className={clsx('bg-gray-50', className)}>{children}</thead>;
+};
+
+export const TableBody = ({ children, className }: TableProps) => {
+  return <tbody className={clsx('divide-y divide-gray-200', className)}>{children}</tbody>;
+};
+
+interface TableCellProps {
+  children: React.ReactNode;
+  className?: string;
+  header?: boolean;
+}
+
+export const TableCell = ({ children, className, header = false }: TableCellProps) => {
+  if (header) {
+    return (
+      <th className={clsx('px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider', className)}>
+        {children}
+      </th>
+    );
+  }
+  return <td className={clsx('px-4 py-3', className)}>{children}</td>;
+};
+
+export const TableRow = ({ children, className }: TableProps) => {
+  return <tr className={clsx('hover:bg-gray-50 transition-colors', className)}>{children}</tr>;
 };

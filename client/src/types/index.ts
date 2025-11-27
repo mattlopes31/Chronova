@@ -1,163 +1,214 @@
-export type Role = 'ADMIN' | 'EMPLOYEE';
-export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-export type LeaveType = 'PAID' | 'UNPAID' | 'SICK' | 'OTHER';
-export type ProjectStatus = 'ACTIVE' | 'COMPLETED' | 'ON_HOLD' | 'CANCELLED';
+// Types pour Chronova
 
-export interface User {
+export type UserRole = 'Admin' | 'Manager' | 'Salarie';
+export type ValidationStatus = 'Brouillon' | 'Soumis' | 'Valide' | 'Rejete';
+export type CongeType = 'CP' | 'RTT' | 'Maladie' | 'Sans_solde' | 'Autre';
+
+export interface Salarie {
   id: string;
   email: string;
-  firstName: string;
-  lastName: string;
-  role: Role;
-  isActive?: boolean;
-  createdAt?: string;
-  projectAssignments?: ProjectAssignment[];
+  nom: string;
+  prenom: string;
+  tel?: string;
+  matricule?: string;
+  role: UserRole;
+  actif: boolean;
+  date_entree?: string;
+  derniere_connexion?: string;
+  salarie_fonction_id?: string;
+  salarie_status_id?: string;
+  manager_id?: string;
+  taux_horaire?: number;
+  fonction?: SalarieFonction;
+  status?: SalarieStatus;
+  manager?: Pick<Salarie, 'id' | 'nom' | 'prenom' | 'email'>;
 }
 
-export interface Project {
+export interface SalarieFonction {
   id: string;
   code: string;
-  name: string;
-  description?: string;
-  status: ProjectStatus;
-  estimatedHours?: number;
-  totalHoursSpent?: number;
-  createdAt?: string;
-  tasks?: Task[];
-  assignments?: ProjectAssignment[];
+  libelle: string;
+  taux_horaire_defaut?: number;
 }
 
-export interface Task {
+export interface SalarieStatus {
   id: string;
   code: string;
-  label: string;
+  libelle: string;
+}
+
+export interface Client {
+  id: string;
+  nom: string;
+  adresse?: string;
+  code_postal?: string;
+  ville?: string;
+  pays_id?: string;
+  telephone?: string;
+  email?: string;
+  contact_nom?: string;
+  siret?: string;
+  actif: boolean;
+}
+
+export interface Projet {
+  id: string;
+  code_projet: string;
+  nom: string;
   description?: string;
-  estimatedHours?: number;
-  totalHoursSpent?: number;
-  isActive: boolean;
-  projectId: string;
-  project?: Pick<Project, 'id' | 'code' | 'name'>;
+  client_id?: string;
+  projet_status_id?: string;
+  date_debut?: string;
+  date_fin_prevue?: string;
+  date_fin_reelle?: string;
+  budget_heures?: number;
+  budget_euros?: number;
+  actif: boolean;
+  archive: boolean;
+  client?: Client;
+  status?: ProjetStatus;
+  taches?: TacheProjet[];
 }
 
-export interface ProjectAssignment {
+export interface ProjetStatus {
   id: string;
-  userId: string;
-  projectId: string;
-  project?: Project;
-  user?: User;
+  code: string;
+  libelle: string;
+  couleur?: string;
 }
 
-export interface TimeEntry {
+export interface TacheType {
   id: string;
-  date: string;
-  hours: number;
+  code: string;
+  libelle: string;
   description?: string;
-  validated: boolean;
-  weekNumber: number;
-  year: number;
-  userId: string;
-  user?: User;
-  projectId: string;
-  project: Pick<Project, 'id' | 'code' | 'name'>;
-  taskId: string;
-  task: Pick<Task, 'id' | 'code' | 'label'>;
+  couleur?: string;
+  facturable: boolean;
+  actif: boolean;
 }
 
-export interface WeekValidation {
+export interface TacheProjet {
   id: string;
-  userId: string;
-  weekNumber: number;
-  year: number;
-  validated: boolean;
-  validatedAt: string;
-  totalHours: number;
+  projet_id: string;
+  tache_type_id: string;
+  budget_heures?: number;
+  taux_horaire?: number;
+  actif: boolean;
+  projet?: Projet;
+  tache_type?: TacheType;
 }
 
-export interface LeaveRequest {
+export interface TacheProjetSalarie {
   id: string;
-  startDate: string;
-  endDate: string;
-  type: LeaveType;
-  status: LeaveStatus;
-  reason?: string;
-  createdAt: string;
-  approvedAt?: string;
-  userId: string;
-  user?: User;
-  approvedById?: string;
-  approvedBy?: User;
+  tache_projet_id: string;
+  salarie_id: string;
+  date_affectation: string;
+  actif: boolean;
+  tache_projet?: TacheProjet;
+  salarie?: Salarie;
 }
 
-export interface PublicHoliday {
+export interface SalariePointage {
+  id: string;
+  salarie_id: string;
+  projet_id: string;
+  tache_projet_id?: string;
+  annee: number;
+  semaine: number;
+  date_lundi: string;
+  heure_lundi?: number;
+  heure_mardi?: number;
+  heure_mercredi?: number;
+  heure_jeudi?: number;
+  heure_vendredi?: number;
+  heure_samedi?: number;
+  heure_dimanche?: number;
+  total_heures?: number;
+  commentaire?: string;
+  validation_status: ValidationStatus;
+  projet?: Projet;
+  tache_projet?: TacheProjet;
+}
+
+export interface SalarieCp {
+  id: string;
+  salarie_id: string;
+  annee: number;
+  semaine: number;
+  date_lundi: string;
+  cp_lundi: boolean;
+  cp_mardi: boolean;
+  cp_mercredi: boolean;
+  cp_jeudi: boolean;
+  cp_vendredi: boolean;
+  type_conge: CongeType;
+  commentaire?: string;
+  validation_status: ValidationStatus;
+}
+
+export interface ValidationSemaine {
+  id: string;
+  salarie_id: string;
+  annee: number;
+  semaine: number;
+  status: ValidationStatus;
+  total_heures_travaillees?: number;
+  total_heures_cp?: number;
+  date_soumission?: string;
+  date_validation?: string;
+  validateur_id?: string;
+  commentaire_rejet?: string;
+}
+
+export interface JourFerie {
   id: string;
   date: string;
-  name: string;
-  year: number;
+  libelle: string;
+  annee: number;
 }
 
-export interface LeaveDate {
-  date: string;
-  userId: string;
-  userName: string;
-  type: LeaveType;
-}
-
-export interface WeeklySummary {
-  entries: TimeEntry[];
-  totalHours: number;
-  byDate: Record<string, TimeEntry[]>;
-  byProject: Record<string, number>;
-  validated: boolean;
-  validatedAt?: string;
-}
-
-export interface UserWeeklySummary {
-  user: Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>;
-  totalHours: number;
-  validated: boolean;
-  validatedAt?: string;
-  byDate: Record<string, number>;
-  entries: TimeEntry[];
-}
-
-export interface DashboardSummary {
-  totals: {
-    monthlyHours: number;
-    yearlyHours: number;
-    employeesCount: number;
-    projectsCount: number;
-    pendingLeaves: number;
+// Types pour l'interface de pointage
+export interface PointageLigne {
+  projet: Projet;
+  tache?: TacheProjet;
+  heures: {
+    lundi: number;
+    mardi: number;
+    mercredi: number;
+    jeudi: number;
+    vendredi: number;
+    samedi: number;
+    dimanche: number;
   };
-  hoursByProject: Array<{
-    project: Pick<Project, 'id' | 'code' | 'name'>;
-    hours: number;
-  }>;
-  hoursByTask: Array<{
-    task: Pick<Task, 'id' | 'code' | 'label'>;
-    hours: number;
-  }>;
-  hoursByEmployee: Array<{
-    employee: Pick<User, 'id' | 'firstName' | 'lastName'>;
-    hours: number;
-  }>;
+  pointage_id?: string;
 }
 
-export interface MonthlyTrend {
-  month: number;
-  monthName: string;
-  hours: number;
+export interface CongesLigne {
+  lundi: boolean;
+  mardi: boolean;
+  mercredi: boolean;
+  jeudi: boolean;
+  vendredi: boolean;
+  type_conge: CongeType;
 }
 
-export interface ProjectComparison {
-  project: Pick<Project, 'id' | 'code' | 'name'>;
-  estimated: number;
-  actual: number;
-  variance: number;
-  taskBreakdown: Array<{
-    task: Pick<Task, 'id' | 'code' | 'label'>;
-    estimated: number;
-    actual: number;
-    variance: number;
+export interface SemaineSummary {
+  heures_travaillees: number;
+  heures_cp: number;
+  heures_normales: number; // max 35h
+  heures_sup: number; // > 35h
+  heures_dues: number; // si < 35h (retard cumulable)
+  total_semaine: number;
+  status: ValidationStatus;
+}
+
+export interface HeuresDues {
+  salarie_id: string;
+  total_heures_dues: number;
+  detail_par_semaine: Array<{
+    annee: number;
+    semaine: number;
+    heures_dues: number;
   }>;
 }
 
@@ -167,41 +218,33 @@ export interface LoginInput {
   password: string;
 }
 
-export interface CreateUserInput {
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-  role?: Role;
+export interface PointageInput {
+  projet_id: string;
+  tache_projet_id?: string;
+  annee: number;
+  semaine: number;
+  heures: {
+    lundi: number;
+    mardi: number;
+    mercredi: number;
+    jeudi: number;
+    vendredi: number;
+    samedi: number;
+    dimanche: number;
+  };
+  commentaire?: string;
 }
 
-export interface CreateProjectInput {
-  code: string;
-  name: string;
-  description?: string;
-  estimatedHours?: number;
-  status?: ProjectStatus;
-}
-
-export interface CreateTaskInput {
-  code: string;
-  label: string;
-  description?: string;
-  estimatedHours?: number;
-  projectId: string;
-}
-
-export interface CreateTimeEntryInput {
-  date: string;
-  hours: number;
-  description?: string;
-  projectId: string;
-  taskId: string;
-}
-
-export interface CreateLeaveInput {
-  startDate: string;
-  endDate: string;
-  type?: LeaveType;
-  reason?: string;
+export interface CongeInput {
+  annee: number;
+  semaine: number;
+  jours: {
+    lundi: boolean;
+    mardi: boolean;
+    mercredi: boolean;
+    jeudi: boolean;
+    vendredi: boolean;
+  };
+  type_conge: CongeType;
+  commentaire?: string;
 }

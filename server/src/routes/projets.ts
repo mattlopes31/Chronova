@@ -33,6 +33,22 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         responsable: {
           select: { id: true, nom: true, prenom: true }
         },
+        taches: {
+          include: {
+            tache_type: true
+          }
+        },
+        affectations: {
+          include: {
+            salarie: {
+              select: { id: true, nom: true, prenom: true }
+            },
+            tache_projet: {
+              include: { tache_type: true }
+            },
+            tache_type: true
+          }
+        },
         _count: {
           select: { taches: true, pointages: true }
         }
@@ -53,6 +69,57 @@ router.get('/statuts', authMiddleware, async (req: AuthRequest, res: Response) =
     const statuts = await prisma.projetStatus.findMany();
     res.json(serializeBigInt(statuts));
   } catch (error) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// GET /api/projets/mes-projets - Projets assignés au salarié connecté
+router.get('/mes-projets', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const salarieId = req.user!.id;
+
+    // Récupérer les projets où le salarié est assigné
+    const affectations = await prisma.tacheProjetSalarie.findMany({
+      where: { salarie_id: salarieId },
+      select: { projet_id: true, tache_projet_id: true, tache_type_id: true }
+    });
+
+    const projetIds = [...new Set(affectations.map(a => a.projet_id))];
+
+    if (projetIds.length === 0) {
+      return res.json([]);
+    }
+
+    const projets = await prisma.projet.findMany({
+      where: {
+        id: { in: projetIds },
+        actif: true
+      },
+      include: {
+        status: true,
+        client: {
+          select: { id: true, nom: true }
+        },
+        taches: {
+          include: {
+            tache_type: true
+          }
+        },
+        affectations: {
+          where: { salarie_id: salarieId },
+          include: {
+            tache_projet: {
+              include: { tache_type: true }
+            },
+            tache_type: true
+          }
+        }
+      }
+    });
+
+    res.json(serializeBigInt(projets));
+  } catch (error) {
+    console.error('Erreur mes-projets:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });

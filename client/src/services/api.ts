@@ -1,24 +1,18 @@
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 import type {
-  User,
-  Project,
-  Task,
-  TimeEntry,
-  LeaveRequest,
-  PublicHoliday,
-  LeaveDate,
-  WeeklySummary,
-  UserWeeklySummary,
-  DashboardSummary,
-  MonthlyTrend,
-  ProjectComparison,
+  Salarie,
+  Projet,
+  Client,
+  TacheType,
+  TacheProjet,
+  SalariePointage,
+  SalarieCp,
+  ValidationSemaine,
+  JourFerie,
+  SalarieFonction,
+  SalarieStatus,
   LoginInput,
-  CreateUserInput,
-  CreateProjectInput,
-  CreateTaskInput,
-  CreateTimeEntryInput,
-  CreateLeaveInput,
 } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -30,7 +24,7 @@ const api = axios.create({
   },
 });
 
-// Add auth token to requests
+// Intercepteur pour ajouter le token
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
   if (token) {
@@ -39,7 +33,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Intercepteur pour gérer les erreurs d'auth
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -51,233 +45,252 @@ api.interceptors.response.use(
   }
 );
 
-// Auth
+// ============ AUTH ============
 export const authApi = {
   login: async (data: LoginInput) => {
-    const res = await api.post<{ token: string; user: User }>('/auth/login', data);
+    const res = await api.post<{ token: string; user: Salarie }>('/auth/login', data);
     return res.data;
   },
   me: async () => {
-    const res = await api.get<User>('/auth/me');
-    return res.data;
-  },
-  forgotPassword: async (email: string) => {
-    const res = await api.post('/auth/forgot-password', { email });
-    return res.data;
-  },
-  resetPassword: async (token: string, password: string) => {
-    const res = await api.post('/auth/reset-password', { token, password });
+    const res = await api.get<Salarie>('/auth/me');
     return res.data;
   },
   changePassword: async (currentPassword: string, newPassword: string) => {
-    const res = await api.post('/auth/change-password', { currentPassword, newPassword });
+    const res = await api.put('/auth/password', { currentPassword, newPassword });
     return res.data;
   },
 };
 
-// Users
-export const usersApi = {
-  getAll: async () => {
-    const res = await api.get<User[]>('/users');
+// ============ SALARIES ============
+export const salariesApi = {
+  getAll: async (params?: { actif?: boolean; fonction_id?: string; search?: string }) => {
+    const res = await api.get<Salarie[]>('/salaries', { params });
     return res.data;
   },
   getById: async (id: string) => {
-    const res = await api.get<User>(`/users/${id}`);
+    const res = await api.get<Salarie>(`/salaries/${id}`);
     return res.data;
   },
-  create: async (data: CreateUserInput) => {
-    const res = await api.post<User>('/users', data);
+  getFonctions: async () => {
+    const res = await api.get<SalarieFonction[]>('/salaries/fonctions');
     return res.data;
   },
-  update: async (id: string, data: Partial<User>) => {
-    const res = await api.put<User>(`/users/${id}`, data);
+  getStatuts: async () => {
+    const res = await api.get<SalarieStatus[]>('/salaries/statuts');
+    return res.data;
+  },
+  create: async (data: Partial<Salarie> & { password?: string }) => {
+    const res = await api.post<Salarie>('/salaries', data);
+    return res.data;
+  },
+  update: async (id: string, data: Partial<Salarie>) => {
+    const res = await api.put<Salarie>(`/salaries/${id}`, data);
     return res.data;
   },
   delete: async (id: string) => {
-    const res = await api.delete(`/users/${id}`);
-    return res.data;
-  },
-  assignProjects: async (id: string, projectIds: string[]) => {
-    const res = await api.post(`/users/${id}/projects`, { projectIds });
-    return res.data;
-  },
-  getProjects: async (id: string) => {
-    const res = await api.get<Project[]>(`/users/${id}/projects`);
+    const res = await api.delete(`/salaries/${id}`);
     return res.data;
   },
 };
 
-// Projects
-export const projectsApi = {
-  getAll: async (status?: string) => {
-    const params = status ? { status } : {};
-    const res = await api.get<Project[]>('/projects', { params });
+// ============ PROJETS ============
+export const projetsApi = {
+  getAll: async (params?: { actif?: boolean; status_id?: string; client_id?: string }) => {
+    const res = await api.get<Projet[]>('/projets', { params });
     return res.data;
   },
   getById: async (id: string) => {
-    const res = await api.get<Project>(`/projects/${id}`);
+    const res = await api.get<Projet>(`/projets/${id}`);
     return res.data;
   },
-  create: async (data: CreateProjectInput) => {
-    const res = await api.post<Project>('/projects', data);
+  // Récupérer les projets assignés au salarié connecté
+  getMesProjets: async () => {
+    const res = await api.get<Projet[]>('/projets/mes-projets');
     return res.data;
   },
-  update: async (id: string, data: Partial<Project>) => {
-    const res = await api.put<Project>(`/projects/${id}`, data);
+  getStatuts: async () => {
+    const res = await api.get('/projets/statuts');
     return res.data;
   },
-  delete: async (id: string) => {
-    const res = await api.delete(`/projects/${id}`);
+  create: async (data: Partial<Projet>) => {
+    const res = await api.post<Projet>('/projets', data);
     return res.data;
   },
-  assignUsers: async (id: string, userIds: string[]) => {
-    const res = await api.post(`/projects/${id}/users`, { userIds });
+  update: async (id: number, data: Partial<Projet>) => {
+    const res = await api.put<Projet>(`/projets/${id}`, data);
+    return res.data;
+  },
+  delete: async (id: number) => {
+    const res = await api.delete(`/projets/${id}`);
+    return res.data;
+  },
+  addTache: async (projetId: number, data: { type_tache: string; budget_heures?: number }) => {
+    const res = await api.post(`/projets/${projetId}/taches`, data);
+    return res.data;
+  },
+  addAffectation: async (projetId: number, data: { tache_projet_id: number; salarie_id: number }) => {
+    const res = await api.post(`/projets/${projetId}/affectations`, data);
     return res.data;
   },
 };
 
-// Tasks
-export const tasksApi = {
-  getAll: async (projectId?: string) => {
-    const params = projectId ? { projectId } : {};
-    const res = await api.get<Task[]>('/tasks', { params });
+// ============ CLIENTS ============
+export const clientsApi = {
+  getAll: async (params?: { actif?: boolean; search?: string }) => {
+    const res = await api.get<Client[]>('/clients', { params });
     return res.data;
   },
   getById: async (id: string) => {
-    const res = await api.get<Task>(`/tasks/${id}`);
+    const res = await api.get<Client>(`/clients/${id}`);
     return res.data;
   },
-  create: async (data: CreateTaskInput) => {
-    const res = await api.post<Task>('/tasks', data);
+  create: async (data: Partial<Client>) => {
+    const res = await api.post<Client>('/clients', data);
     return res.data;
   },
-  update: async (id: string, data: Partial<Task>) => {
-    const res = await api.put<Task>(`/tasks/${id}`, data);
+  update: async (id: string, data: Partial<Client>) => {
+    const res = await api.put<Client>(`/clients/${id}`, data);
     return res.data;
   },
-  delete: async (id: string) => {
-    const res = await api.delete(`/tasks/${id}`);
+
+  delete: async (id: number) => {
+  const res = await api.delete(`/clients/${id}`);
+  return res.data;
+},
+};
+
+// ============ TACHES ============
+export const tachesApi = {
+  getTypes: async (params?: { actif?: boolean }) => {
+    const res = await api.get<TacheType[]>('/taches', { params });
+    return res.data;
+  },
+  getById: async (id: string) => {
+    const res = await api.get<TacheType>(`/taches/${id}`);
+    return res.data;
+  },
+  create: async (data: Partial<TacheType>) => {
+    const res = await api.post<TacheType>('/taches', data);
+    return res.data;
+  },
+  update: async (id: string, data: Partial<TacheType>) => {
+    const res = await api.put<TacheType>(`/taches/${id}`, data);
     return res.data;
   },
 };
 
-// Time Entries
-export const timeEntriesApi = {
-  getMyEntries: async (params?: { startDate?: string; endDate?: string; weekNumber?: number; year?: number }) => {
-    const res = await api.get<TimeEntry[]>('/time-entries', { params });
+// ============ POINTAGES ============
+export const pointagesApi = {
+  getAll: async (params?: { salarie_id?: string; projet_id?: string; annee?: number; semaine?: number; status?: string }) => {
+    const res = await api.get<SalariePointage[]>('/pointages', { params });
     return res.data;
   },
-  getAllEntries: async (params?: { startDate?: string; endDate?: string; weekNumber?: number; year?: number; userId?: string }) => {
-    const res = await api.get<TimeEntry[]>('/time-entries/all', { params });
+  getSemaine: async (annee: number, semaine: number) => {
+    const res = await api.get<{
+      pointages: SalariePointage[];
+      conges: SalarieCp;
+      validation: ValidationSemaine;
+      jours_feries: JourFerie[];
+    }>(`/pointages/semaine/${annee}/${semaine}`);
     return res.data;
   },
-  getWeeklySummary: async (weekNumber: number, year: number) => {
-    const res = await api.get<WeeklySummary>('/time-entries/weekly-summary', {
-      params: { weekNumber, year },
-    });
+  create: async (data: {
+    projet_id: string;
+    tache_projet_id?: string;
+    annee: number;
+    semaine: number;
+    heure_lundi?: number;
+    heure_mardi?: number;
+    heure_mercredi?: number;
+    heure_jeudi?: number;
+    heure_vendredi?: number;
+    heure_samedi?: number;
+    heure_dimanche?: number;
+    commentaire?: string;
+  }) => {
+    const res = await api.post<SalariePointage>('/pointages', data);
     return res.data;
   },
-  getAllWeeklySummary: async (weekNumber: number, year: number) => {
-    const res = await api.get<UserWeeklySummary[]>('/time-entries/weekly-summary/all', {
-      params: { weekNumber, year },
-    });
+  soumettre: async (annee: number, semaine: number) => {
+    const res = await api.post('/pointages/soumettre', { annee, semaine });
     return res.data;
   },
-  create: async (data: CreateTimeEntryInput) => {
-    const res = await api.post<TimeEntry>('/time-entries', data);
+  valider: async (salarie_id: string, annee: number, semaine: number) => {
+    const res = await api.post('/pointages/valider', { salarie_id, annee, semaine });
     return res.data;
   },
-  update: async (id: string, data: Partial<TimeEntry>) => {
-    const res = await api.put<TimeEntry>(`/time-entries/${id}`, data);
+  rejeter: async (salarie_id: string, annee: number, semaine: number, commentaire: string) => {
+    const res = await api.post('/pointages/rejeter', { salarie_id, annee, semaine, commentaire });
     return res.data;
   },
   delete: async (id: string) => {
-    const res = await api.delete(`/time-entries/${id}`);
-    return res.data;
-  },
-  validateWeek: async (weekNumber: number, year: number) => {
-    const res = await api.post('/time-entries/validate-week', { weekNumber, year });
-    return res.data;
-  },
-  unvalidateWeek: async (userId: string, weekNumber: number, year: number) => {
-    const res = await api.post('/time-entries/unvalidate-week', { userId, weekNumber, year });
+    const res = await api.delete(`/pointages/${id}`);
     return res.data;
   },
 };
 
-// Leaves
-export const leavesApi = {
-  getMyLeaves: async (year?: number) => {
-    const params = year ? { year } : {};
-    const res = await api.get<LeaveRequest[]>('/leaves', { params });
+// ============ CONGES ============
+export const congesApi = {
+  getAll: async (params?: { salarie_id?: string; annee?: number; status?: string; type?: string }) => {
+    const res = await api.get<SalarieCp[]>('/conges', { params });
     return res.data;
   },
-  getAllLeaves: async (params?: { year?: number; status?: string; userId?: string }) => {
-    const res = await api.get<LeaveRequest[]>('/leaves/all', { params });
+  getJoursFeries: async (annee?: number) => {
+    const res = await api.get<JourFerie[]>('/conges/jours-feries', { params: { annee } });
     return res.data;
   },
-  getCalendarLeaves: async (startDate: string, endDate: string) => {
-    const res = await api.get<LeaveDate[]>('/leaves/calendar', {
-      params: { startDate, endDate },
-    });
+  create: async (data: {
+    annee: number;
+    semaine: number;
+    cp_lundi?: boolean;
+    cp_mardi?: boolean;
+    cp_mercredi?: boolean;
+    cp_jeudi?: boolean;
+    cp_vendredi?: boolean;
+    type_conge?: string;
+    commentaire?: string;
+  }) => {
+    const res = await api.post<SalarieCp>('/conges', data);
     return res.data;
   },
-  create: async (data: CreateLeaveInput) => {
-    const res = await api.post<LeaveRequest>('/leaves', data);
+  soumettre: async (id: string) => {
+    const res = await api.post(`/conges/${id}/soumettre`);
     return res.data;
   },
-  updateStatus: async (id: string, status: 'APPROVED' | 'REJECTED') => {
-    const res = await api.put<LeaveRequest>(`/leaves/${id}/status`, { status });
+  valider: async (id: string) => {
+    const res = await api.post(`/conges/${id}/valider`);
     return res.data;
   },
-  delete: async (id: string) => {
-    const res = await api.delete(`/leaves/${id}`);
-    return res.data;
-  },
-};
-
-// Holidays
-export const holidaysApi = {
-  getByYear: async (year: number) => {
-    const res = await api.get<PublicHoliday[]>('/holidays', { params: { year } });
-    return res.data;
-  },
-  getByRange: async (startDate: string, endDate: string) => {
-    const res = await api.get<PublicHoliday[]>('/holidays/range', {
-      params: { startDate, endDate },
-    });
-    return res.data;
-  },
-  create: async (date: string, name: string) => {
-    const res = await api.post<PublicHoliday>('/holidays', { date, name });
-    return res.data;
-  },
-  delete: async (id: string) => {
-    const res = await api.delete(`/holidays/${id}`);
-    return res.data;
-  },
-  initYear: async (year: number) => {
-    const res = await api.post(`/holidays/init/${year}`);
+  rejeter: async (id: string, commentaire: string) => {
+    const res = await api.post(`/conges/${id}/rejeter`, { commentaire });
     return res.data;
   },
 };
 
-// Dashboard
+// ============ DASHBOARD ============
 export const dashboardApi = {
-  getSummary: async (month?: number, year?: number) => {
-    const params: Record<string, number> = {};
-    if (month) params.month = month;
-    if (year) params.year = year;
-    const res = await api.get<DashboardSummary>('/dashboard/summary', { params });
+  getStats: async () => {
+    const res = await api.get('/dashboard/stats');
     return res.data;
   },
-  getTrend: async (year?: number) => {
-    const params = year ? { year } : {};
-    const res = await api.get<MonthlyTrend[]>('/dashboard/trend', { params });
+  getHeuresProjet: async () => {
+    const res = await api.get('/dashboard/heures-projet');
     return res.data;
   },
-  getComparison: async () => {
-    const res = await api.get<ProjectComparison[]>('/dashboard/comparison');
+  getValidations: async () => {
+    const res = await api.get('/dashboard/validations');
+    return res.data;
+  },
+  getMesStats: async () => {
+    const res = await api.get('/dashboard/mes-stats');
+    return res.data;
+  },
+  getNotifications: async () => {
+    const res = await api.get('/dashboard/notifications');
+    return res.data;
+  },
+  marquerNotificationLue: async (id: string) => {
+    const res = await api.put(`/dashboard/notifications/${id}/lue`);
     return res.data;
   },
 };
