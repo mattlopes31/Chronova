@@ -90,24 +90,28 @@ router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: 
   try {
     const data = req.body;
 
-    if (!data.nom || !data.contact_nom) {
-      return res.status(400).json({ error: 'Nom et contact requis' });
+    if (!data.nom) {
+      return res.status(400).json({ error: 'Nom du client requis' });
     }
 
     const client = await prisma.client.create({
       data: {
         nom: data.nom,
-        contact_nom: data.contact_nom,
-        contact_prenom: data.contact_prenom,
-        contact_email: data.contact_email,
-        contact_tel: data.contact_tel,
-        adresse: data.adresse,
-        cp: data.cp,
-        ville: data.ville,
+        code_client: data.code_client || null,
+        email: data.email || null,
+        tel: data.tel || null,
+        adresse: data.adresse || null,
+        cp: data.code_postal || data.cp || null,
+        ville: data.ville || null,
+        site_web: data.site_web || null,
+        contact_nom: data.contact_nom || null,
+        contact_prenom: data.contact_prenom || null,
+        contact_email: data.contact_email || null,
+        contact_tel: data.contact_tel || null,
         pays_id: data.pays_id ? BigInt(data.pays_id) : null,
-        siret: data.siret,
-        code_client: data.code_client,
-        notes: data.notes
+        siret: data.siret || null,
+        notes: data.notes || null,
+        actif: data.actif !== undefined ? data.actif : true
       },
       include: {
         pays: true
@@ -127,7 +131,23 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res
     const id = BigInt(req.params.id);
     const data = req.body;
 
-    const updateData: any = { ...data };
+    const updateData: any = {
+      nom: data.nom,
+      code_client: data.code_client || null,
+      email: data.email || null,
+      tel: data.tel || null,
+      adresse: data.adresse || null,
+      cp: data.code_postal || data.cp || null,
+      ville: data.ville || null,
+      site_web: data.site_web || null,
+      contact_nom: data.contact_nom || null,
+      contact_prenom: data.contact_prenom || null,
+      contact_email: data.contact_email || null,
+      contact_tel: data.contact_tel || null,
+      notes: data.notes || null,
+      actif: data.actif !== undefined ? data.actif : true
+    };
+    
     if (data.pays_id) updateData.pays_id = BigInt(data.pays_id);
 
     const client = await prisma.client.update({

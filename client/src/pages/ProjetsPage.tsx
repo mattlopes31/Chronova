@@ -52,17 +52,6 @@ const initialForm: ProjetForm = {
   actif: true,
 };
 
-// Types de tâches prédéfinis
-const TACHES_TYPES = [
-  { id: 'Cablage', label: 'Câblage', color: 'bg-blue-100 text-blue-700' },
-  { id: 'DAO', label: 'DAO', color: 'bg-purple-100 text-purple-700' },
-  { id: 'Prog', label: 'Programmation', color: 'bg-green-100 text-green-700' },
-  { id: 'SCADA', label: 'SCADA', color: 'bg-orange-100 text-orange-700' },
-  { id: 'Mise_en_service', label: 'Mise en service', color: 'bg-red-100 text-red-700' },
-  { id: 'Etude', label: 'Étude', color: 'bg-cyan-100 text-cyan-700' },
-  { id: 'Autre', label: 'Autre', color: 'bg-gray-100 text-gray-700' },
-];
-
 export const ProjetsPage = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -73,7 +62,7 @@ export const ProjetsPage = () => {
   const [selectedProjet, setSelectedProjet] = useState<any>(null);
   const [expandedProjet, setExpandedProjet] = useState<number | null>(null);
   const [form, setForm] = useState<ProjetForm>(initialForm);
-  const [selectedTaches, setSelectedTaches] = useState<string[]>([]);
+  const [selectedTaches, setSelectedTaches] = useState<number[]>([]);
   const [assignSalarie, setAssignSalarie] = useState<string>('');
   const [assignTache, setAssignTache] = useState<string>('');
 
@@ -98,14 +87,20 @@ export const ProjetsPage = () => {
     queryFn: projetsApi.getStatuts,
   });
 
+  // Charger les types de tâches depuis la BDD
+  const { data: tacheTypes = [] } = useQuery({
+    queryKey: ['tache-types'],
+    queryFn: () => tachesApi.getAll({ actif: true }),
+  });
+
   // Mutations
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const projet = await projetsApi.create(data.projet);
-      // Ajouter les tâches sélectionnées
-      for (const tacheType of data.taches) {
-        await projetsApi.addTache(projet.id, { type_tache: tacheType });
-      }
+      // Envoyer le projet avec les tâches en une seule requête
+      const projet = await projetsApi.create({
+        ...data.projet,
+        taches: data.taches, // Tableau d'IDs de tache_type
+      });
       return projet;
     },
     onSuccess: () => {
@@ -161,7 +156,7 @@ export const ProjetsPage = () => {
   const filteredProjets = projets.filter((p: any) => {
     const matchSearch =
       p.nom.toLowerCase().includes(search.toLowerCase()) ||
-      p.code_projet.toLowerCase().includes(search.toLowerCase());
+      p.code_projet?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = !filterStatus || p.projet_status_id?.toString() === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -178,7 +173,7 @@ export const ProjetsPage = () => {
     setSelectedProjet(projet);
     setForm({
       id: projet.id,
-      code_projet: projet.code_projet,
+      code_projet: projet.code_projet || '',
       nom: projet.nom,
       description: projet.description || '',
       client_id: projet.client_id?.toString() || '',
@@ -190,9 +185,9 @@ export const ProjetsPage = () => {
       priorite: projet.priorite?.toString() || '1',
       actif: projet.actif,
     });
-    // Récupérer les tâches existantes
-    const existingTaches = projet.taches?.map((t: any) => t.type_tache) || [];
-    setSelectedTaches(existingTaches);
+    // Récupérer les IDs des tâches existantes
+    const existingTacheIds = projet.taches?.map((t: any) => parseInt(t.tache_type_id)) || [];
+    setSelectedTaches(existingTacheIds);
     setIsModalOpen(true);
   };
 
@@ -203,7 +198,7 @@ export const ProjetsPage = () => {
     setSelectedProjet(null);
   };
 
-  const toggleTache = (tacheId: string) => {
+  const toggleTache = (tacheId: number) => {
     setSelectedTaches((prev) =>
       prev.includes(tacheId) ? prev.filter((t) => t !== tacheId) : [...prev, tacheId]
     );
@@ -256,18 +251,23 @@ export const ProjetsPage = () => {
       return;
     }
 
-    // Trouver l'ID de la tâche du projet
-    const tache = selectedProjet.taches?.find((t: any) => t.type_tache === assignTache);
+    // Trouver la tâche du projet par son tache_type_id
+    const tache = selectedProjet.taches?.find((t: any) => 
+      String(t.tache_type_id) === assignTache
+    );
+    
     if (!tache) {
-      toast.error('Tâche non trouvée');
+      toast.error('Tâche non trouvée dans ce projet');
+      console.error('Tâches disponibles:', selectedProjet.taches);
+      console.error('Tâche recherchée:', assignTache);
       return;
     }
 
     assignMutation.mutate({
-      projetId: selectedProjet.id,
+      projetId: parseInt(selectedProjet.id),
       data: {
         salarie_id: parseInt(assignSalarie),
-        tache_projet_id: tache.id,
+        tache_projet_id: parseInt(tache.id),
       },
     });
   };
@@ -315,27 +315,41 @@ export const ProjetsPage = () => {
     return client?.nom || '-';
   };
 
-  const getTacheColor = (type: string) => {
-    return TACHES_TYPES.find((t) => t.id === type)?.color || 'bg-gray-100 text-gray-700';
+  const getTacheLabel = (tacheTypeId: number) => {
+    const tache = tacheTypes.find((t: any) => t.id === tacheTypeId);
+    return tache?.tache_type || 'Tâche';
+  };
+
+  const getTacheColor = (tacheTypeId: number) => {
+    const tache = tacheTypes.find((t: any) => t.id === tacheTypeId);
+    const couleur = tache?.couleur || '#6B7280';
+    // Convertir la couleur hex en classe Tailwind-like
+    return { backgroundColor: `${couleur}20`, color: couleur };
   };
 
   // Filtrer les salariés selon leur fonction pour l'assignation
-  const getSalariesForTache = (tacheType: string) => {
-    // Mapping fonction → tâche
-    const fonctionToTache: Record<string, string[]> = {
-      Cableur: ['Cablage'],
+  const getSalariesForTache = (tacheTypeId: string) => {
+    const tache = tacheTypes.find((t: any) => t.id?.toString() === tacheTypeId);
+    if (!tache) return salaries.filter((s: any) => s.actif);
+    
+    // Mapping fonction → codes de tâche acceptés
+    const tacheCode = tache.code;
+    const fonctionToTacheCode: Record<string, string[]> = {
+      Cableur: ['CAB'],
       DAO: ['DAO'],
-      Prog: ['Prog', 'SCADA'],
-      Chef_Projet: ['Cablage', 'DAO', 'Prog', 'SCADA', 'Mise_en_service', 'Etude', 'Autre'],
-      Admin: ['Cablage', 'DAO', 'Prog', 'SCADA', 'Mise_en_service', 'Etude', 'Autre'],
-      Autre: ['Autre', 'Mise_en_service', 'Etude'],
+      Prog: ['PROG', 'SCADA'],
+      Chef_Projet: ['CAB', 'DAO', 'PROG', 'SCADA', 'MES', 'ETU', 'AUT', 'FORM', 'REU', 'SAV', 'ADM'],
+      Admin: ['CAB', 'DAO', 'PROG', 'SCADA', 'MES', 'ETU', 'AUT', 'FORM', 'REU', 'SAV', 'ADM'],
+      Autre: ['AUT', 'MES', 'ETU'],
     };
 
     return salaries.filter((s: any) => {
       if (!s.actif) return false;
       const fonction = s.fonction?.fonction;
       if (!fonction) return true; // Si pas de fonction, peut faire toutes les tâches
-      return fonctionToTache[fonction]?.includes(tacheType);
+      const codesAcceptes = fonctionToTacheCode[fonction];
+      if (!codesAcceptes) return true;
+      return codesAcceptes.includes(tacheCode);
     });
   };
 
@@ -487,9 +501,10 @@ export const ProjetsPage = () => {
                         projet.taches.map((tache: any) => (
                           <span
                             key={tache.id}
-                            className={`px-3 py-1 rounded-full text-sm font-medium ${getTacheColor(tache.type_tache)}`}
+                            className="px-3 py-1 rounded-full text-sm font-medium"
+                            style={getTacheColor(tache.tache_type_id)}
                           >
-                            {TACHES_TYPES.find((t) => t.id === tache.type_tache)?.label || tache.type_tache}
+                            {tache.tache_type?.tache_type || getTacheLabel(tache.tache_type_id)}
                           </span>
                         ))
                       ) : (
@@ -519,9 +534,10 @@ export const ProjetsPage = () => {
                                 {aff.salarie?.prenom} {aff.salarie?.nom}
                               </p>
                               <span
-                                className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getTacheColor(aff.tache_projet?.type_tache)}`}
+                                className="inline-block px-2 py-0.5 rounded text-xs font-medium"
+                                style={getTacheColor(aff.tache_type_id)}
                               >
-                                {TACHES_TYPES.find((t) => t.id === aff.tache_projet?.type_tache)?.label}
+                                {aff.tache_type?.tache_type || getTacheLabel(aff.tache_type_id)}
                               </span>
                             </div>
                           </div>
@@ -618,21 +634,22 @@ export const ProjetsPage = () => {
               Tâches du projet * <span className="text-gray-400 font-normal">(sélectionnez au moins une)</span>
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {TACHES_TYPES.map((tache) => (
+              {tacheTypes.map((tache: any) => (
                 <button
                   key={tache.id}
                   type="button"
-                  onClick={() => toggleTache(tache.id)}
+                  onClick={() => toggleTache(parseInt(tache.id))}
                   className={`p-3 rounded-lg border-2 transition-all ${
-                    selectedTaches.includes(tache.id)
+                    selectedTaches.includes(parseInt(tache.id))
                       ? 'border-primary-500 bg-primary-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
                   <span
-                    className={`inline-block px-2 py-1 rounded text-sm font-medium ${tache.color}`}
+                    className="inline-block px-2 py-1 rounded text-sm font-medium"
+                    style={{ backgroundColor: `${tache.couleur}20`, color: tache.couleur }}
                   >
-                    {tache.label}
+                    {tache.tache_type}
                   </span>
                 </button>
               ))}
@@ -713,47 +730,76 @@ export const ProjetsPage = () => {
         size="md"
       >
         <div className="space-y-4">
-          <Select
-            label="Tâche"
-            value={assignTache}
-            onChange={(e) => {
-              setAssignTache(e.target.value);
-              setAssignSalarie(''); // Reset salarié quand tâche change
-            }}
-            options={[
-              { value: '', label: 'Sélectionner une tâche...' },
-              ...(selectedProjet?.taches?.map((t: any) => ({
-                value: t.type_tache,
-                label: TACHES_TYPES.find((tt) => tt.id === t.type_tache)?.label || t.type_tache,
-              })) || []),
-            ]}
-          />
+          {/* Afficher les tâches du projet */}
+          {selectedProjet?.taches?.length > 0 ? (
+            <>
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Tâches disponibles :</p>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {selectedProjet.taches.map((t: any) => (
+                    <span
+                      key={t.id}
+                      className="px-3 py-1 rounded-full text-sm font-medium"
+                      style={getTacheColor(parseInt(t.tache_type_id))}
+                    >
+                      {t.tache_type?.tache_type || getTacheLabel(parseInt(t.tache_type_id))}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-          <Select
-            label="Salarié"
-            value={assignSalarie}
-            onChange={(e) => setAssignSalarie(e.target.value)}
-            disabled={!assignTache}
-            options={[
-              { value: '', label: assignTache ? 'Sélectionner un salarié...' : 'Choisissez d\'abord une tâche' },
-              ...(assignTache
-                ? getSalariesForTache(assignTache).map((s: any) => ({
-                    value: s.id.toString(),
-                    label: `${s.prenom} ${s.nom}${s.fonction ? ` (${s.fonction.fonction})` : ''}`,
-                  }))
-                : []),
-            ]}
-          />
+              <Select
+                label="Tâche à assigner"
+                value={assignTache}
+                onChange={(e) => {
+                  setAssignTache(e.target.value);
+                  setAssignSalarie(''); // Reset salarié quand tâche change
+                }}
+                options={[
+                  { value: '', label: 'Sélectionner une tâche...' },
+                  ...(selectedProjet?.taches?.map((t: any) => ({
+                    value: String(t.tache_type_id),
+                    label: t.tache_type?.tache_type || getTacheLabel(parseInt(t.tache_type_id)),
+                  })) || []),
+                ]}
+              />
 
-          <p className="text-sm text-gray-500">
-            Les salariés affichés correspondent à la tâche sélectionnée selon leur fonction.
-          </p>
+              <Select
+                label="Salarié"
+                value={assignSalarie}
+                onChange={(e) => setAssignSalarie(e.target.value)}
+                disabled={!assignTache}
+                options={[
+                  { value: '', label: assignTache ? 'Sélectionner un salarié...' : 'Choisissez d\'abord une tâche' },
+                  ...(assignTache
+                    ? getSalariesForTache(assignTache).map((s: any) => ({
+                        value: s.id.toString(),
+                        label: `${s.prenom} ${s.nom}${s.fonction ? ` (${s.fonction.fonction})` : ''}`,
+                      }))
+                    : []),
+                ]}
+              />
+
+              <p className="text-sm text-gray-500">
+                Les salariés affichés correspondent à la tâche sélectionnée selon leur fonction.
+                Vous pouvez assigner le même salarié à plusieurs tâches.
+              </p>
+            </>
+          ) : (
+            <p className="text-amber-600 bg-amber-50 p-3 rounded-lg text-sm">
+              ⚠️ Ce projet n'a pas encore de tâches. Ajoutez des tâches d'abord en modifiant le projet.
+            </p>
+          )}
 
           <div className="flex justify-end gap-3 pt-4">
             <Button variant="outline" onClick={() => setIsAssignModalOpen(false)}>
               Annuler
             </Button>
-            <Button onClick={handleAssign} isLoading={assignMutation.isPending}>
+            <Button 
+              onClick={handleAssign} 
+              isLoading={assignMutation.isPending}
+              disabled={!assignTache || !assignSalarie || selectedProjet?.taches?.length === 0}
+            >
               Assigner
             </Button>
           </div>

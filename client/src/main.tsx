@@ -11,8 +11,8 @@ import { PointagePage } from '@/pages/PointagePage';
 import { AdminPointagesPage } from '@/pages/AdminPointagesPage';
 import { SalariesPage } from '@/pages/SalariesPage';
 import { ProjetsPage } from '@/pages/ProjetsPage';
-import './index.css';
 import { ClientsPage } from '@/pages/ClientsPage';
+import './index.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -134,6 +134,7 @@ const App = () => {
           }
         />
         
+        {/* Gestion Clients - Admin only */}
         <Route
           path="/clients"
           element={

@@ -172,17 +172,42 @@ router.put('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     const { password, ...data } = req.body;
 
-    const updateData: any = { ...data };
+    const updateData: any = {
+      nom: data.nom,
+      prenom: data.prenom,
+      email: data.email,
+      tel: data.tel || null,
+      role: data.role || 'Salarie',
+      actif: data.actif !== undefined ? data.actif : true,
+      heures_hebdo: data.heures_hebdo || 35,
+      taux_horaire: data.taux_horaire || null,
+    };
     
+    // Convertir les dates correctement
+    if (data.date_entree) {
+      updateData.date_entree = new Date(data.date_entree);
+    }
+    if (data.date_sortie) {
+      updateData.date_sortie = new Date(data.date_sortie);
+    } else {
+      updateData.date_sortie = null;
+    }
+    
+    // Gérer le mot de passe
     if (password) {
       updateData.password_hash = await bcrypt.hash(password, 10);
     }
     
+    // Convertir les BigInt
     if (data.salarie_fonction_id) {
       updateData.salarie_fonction_id = BigInt(data.salarie_fonction_id);
+    } else {
+      updateData.salarie_fonction_id = null;
     }
     if (data.salarie_status_id) {
       updateData.salarie_status_id = BigInt(data.salarie_status_id);
+    } else {
+      updateData.salarie_status_id = null;
     }
     if (data.manager_id) {
       updateData.manager_id = BigInt(data.manager_id);

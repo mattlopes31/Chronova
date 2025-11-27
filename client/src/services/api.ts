@@ -124,11 +124,11 @@ export const projetsApi = {
     const res = await api.delete(`/projets/${id}`);
     return res.data;
   },
-  addTache: async (projetId: number, data: { type_tache: string; budget_heures?: number }) => {
+  addTache: async (projetId: number, data: { tache_type_id?: number; type_tache?: string; budget_heures?: number }) => {
     const res = await api.post(`/projets/${projetId}/taches`, data);
     return res.data;
   },
-  addAffectation: async (projetId: number, data: { tache_projet_id: number; salarie_id: number }) => {
+  addAffectation: async (projetId: number, data: { tache_projet_id: number; salarie_id: number; tache_type_id?: number }) => {
     const res = await api.post(`/projets/${projetId}/affectations`, data);
     return res.data;
   },
@@ -140,7 +140,7 @@ export const clientsApi = {
     const res = await api.get<Client[]>('/clients', { params });
     return res.data;
   },
-  getById: async (id: string) => {
+  getById: async (id: number) => {
     const res = await api.get<Client>(`/clients/${id}`);
     return res.data;
   },
@@ -148,19 +148,22 @@ export const clientsApi = {
     const res = await api.post<Client>('/clients', data);
     return res.data;
   },
-  update: async (id: string, data: Partial<Client>) => {
+  update: async (id: number, data: Partial<Client>) => {
     const res = await api.put<Client>(`/clients/${id}`, data);
     return res.data;
   },
-
   delete: async (id: number) => {
-  const res = await api.delete(`/clients/${id}`);
-  return res.data;
-},
+    const res = await api.delete(`/clients/${id}`);
+    return res.data;
+  },
 };
 
 // ============ TACHES ============
 export const tachesApi = {
+  getAll: async (params?: { actif?: boolean }) => {
+    const res = await api.get<TacheType[]>('/taches', { params });
+    return res.data;
+  },
   getTypes: async (params?: { actif?: boolean }) => {
     const res = await api.get<TacheType[]>('/taches', { params });
     return res.data;
@@ -175,6 +178,10 @@ export const tachesApi = {
   },
   update: async (id: string, data: Partial<TacheType>) => {
     const res = await api.put<TacheType>(`/taches/${id}`, data);
+    return res.data;
+  },
+  delete: async (id: number) => {
+    const res = await api.delete(`/taches/${id}`);
     return res.data;
   },
 };
