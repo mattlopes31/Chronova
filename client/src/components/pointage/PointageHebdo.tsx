@@ -35,6 +35,8 @@ import type { Projet, SalariePointage, JourFerie, CongeType } from '@/types';
 
 const HEURES_SEMAINE_NORMALE = 35;
 const HEURES_CP_PAR_JOUR = 7;
+const HEURES_OTHER_PAR_JOUR = 0;
+
 
 const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
 const JOURS_OUVRABLES = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi'] as const;
@@ -111,30 +113,42 @@ export const PointageHebdo = () => {
     queryFn: () => congesApi.getJoursFeries(annee),
   });
 
+
   // Initialiser les lignes avec les données existantes
   useEffect(() => {
+    console.log('=== useEffect semaineData ===');
+    console.log('semaineData:', semaineData);
+    
     if (semaineData?.pointages) {
-      const lignesExistantes: PointageLigne[] = semaineData.pointages.map((p: SalariePointage) => ({
-        id: p.id,
-        projet_id: p.projet_id,
-        projet: p.projet,
-        tache_projet_id: p.tache_projet_id,
-        heures: {
-          lundi: p.heure_lundi || 0,
-          mardi: p.heure_mardi || 0,
-          mercredi: p.heure_mercredi || 0,
-          jeudi: p.heure_jeudi || 0,
-          vendredi: p.heure_vendredi || 0,
-          samedi: p.heure_samedi || 0,
-          dimanche: p.heure_dimanche || 0,
-        },
-        commentaire: p.commentaire,
-      }));
+      console.log('Pointages reçus:', semaineData.pointages);
+      
+      const lignesExistantes: PointageLigne[] = semaineData.pointages.map((p: any) => {
+        const ligne = {
+          id: p.id,
+          projet_id: p.projet_id?.toString(),
+          projet: p.projet,
+          tache_projet_id: p.tache_projet_id,
+          tache_type_id: p.tache_type_id?.toString() || p.tache_type?.id?.toString(),  // AJOUTÉ
+          tache_type: p.tache_type,  // AJOUTÉ
+          heures: {
+            lundi: p.heure_lundi || 0,
+            mardi: p.heure_mardi || 0,
+            mercredi: p.heure_mercredi || 0,
+            jeudi: p.heure_jeudi || 0,
+            vendredi: p.heure_vendredi || 0,
+            samedi: p.heure_samedi || 0,
+            dimanche: p.heure_dimanche || 0,
+          },
+          commentaire: p.commentaire,
+        };
+        console.log('Ligne créée:', ligne);
+        return ligne;
+      });
       setLignes(lignesExistantes);
     } else {
       setLignes([]);
     }
-
+    
     if (semaineData?.conges) {
       setConges({
         lundi: semaineData.conges.cp_lundi || false,
@@ -230,21 +244,31 @@ export const PointageHebdo = () => {
   };
 
   // Gestion des lignes
-  const addLigne = () => {
-    if (!selectedProjetId) {
-      toast.error('Sélectionnez un projet');
-      return;
-    }
-    const projet = projets.find(p => p.id === selectedProjetId);
-    setLignes([...lignes, {
-      projet_id: selectedProjetId,
-      projet,
-      heures: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 },
-      isNew: true,
-    }]);
-    setShowAddProjet(false);
-    setSelectedProjetId('');
-  };
+const addLigne = () => {
+  if (!selectedProjetId) {
+    toast.error('Sélectionnez un projet');
+    return;
+  }
+  
+  // Trouver le projet dans projetsDisponibles
+  const projet = projetsDisponibles.find((p: any) => p.id?.toString() === selectedProjetId);
+  
+  if (!projet) {
+    toast.error('Projet non trouvé');
+    return;
+  }
+  
+  console.log('Ajout projet:', projet);
+  
+  setLignes([...lignes, {
+    projet_id: selectedProjetId,
+    projet,
+    heures: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 },
+    isNew: true,
+  }]);
+  setShowAddProjet(false);
+  setSelectedProjetId('');
+};
 
   const removeLigne = (index: number) => {
     setLignes(lignes.filter((_, i) => i !== index));
@@ -287,6 +311,10 @@ export const PointageHebdo = () => {
     const joursCP = JOURS_OUVRABLES.filter(j => conges[j]).length;
     const heuresCP = joursCP * HEURES_CP_PAR_JOUR;
 
+    //jour de maladie non payé
+    const joursMaladie = JOURS_OUVRABLES.filter(j => conges[j]).length;
+    const heuresMaladie = joursMaladie * HEURES_OTHER_PAR_JOUR;
+
     // Total semaine (travail + CP)
     const totalSemaine = heuresTravaillees + heuresCP;
 
@@ -300,6 +328,8 @@ export const PointageHebdo = () => {
       heuresTravaillees,
       joursCP,
       heuresCP,
+      joursMaladie,
+      heuresMaladie,
       totalSemaine,
       heuresNormales,
       heuresSup,
@@ -576,7 +606,11 @@ export const PointageHebdo = () => {
           <div className="text-2xl font-bold text-gray-900">{calculs.heuresTravaillees}h</div>
         </Card>
         <Card className="p-4">
-          <div className="text-sm text-gray-500">Heures CP ({calculs.joursCP}j)</div>
+          <div className="text-sm text-gray-500">Heures Maladie ({calculs.joursCP}j)</div>
+          <div className="text-2xl font-bold text-amber-600">{calculs.heuresMaladie}h</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-sm text-gray-500">Heures CP ({calculs.joursMaladie}j)</div>
           <div className="text-2xl font-bold text-amber-600">{calculs.heuresCP}h</div>
         </Card>
         <Card className="p-4">

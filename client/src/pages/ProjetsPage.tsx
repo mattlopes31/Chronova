@@ -59,12 +59,14 @@ export const ProjetsPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [isNewTacheModalOpen, setIsNewTacheModalOpen] = useState(false);
   const [selectedProjet, setSelectedProjet] = useState<any>(null);
   const [expandedProjet, setExpandedProjet] = useState<number | null>(null);
   const [form, setForm] = useState<ProjetForm>(initialForm);
   const [selectedTaches, setSelectedTaches] = useState<number[]>([]);
   const [assignSalarie, setAssignSalarie] = useState<string>('');
   const [assignTache, setAssignTache] = useState<string>('');
+  const [newTache, setNewTache] = useState({ tache_type: '', code: '', couleur: '#10B981' });
 
   // Queries
   const { data: projets = [], isLoading } = useQuery({
@@ -96,11 +98,18 @@ export const ProjetsPage = () => {
   // Mutations
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      // Envoyer le projet avec les tâches en une seule requête
-      const projet = await projetsApi.create({
+      console.log('=== createMutation ===');
+      console.log('Data reçue dans mutation:', data);
+      
+      // Construire les données à envoyer
+      const dataToSend = {
         ...data.projet,
-        taches: data.taches, // Tableau d'IDs de tache_type
-      });
+        taches: data.taches,
+      };
+      console.log('Data à envoyer à l\'API:', dataToSend);
+      
+      const projet = await projetsApi.create(dataToSend);
+      console.log('Réponse API:', projet);
       return projet;
     },
     onSuccess: () => {
@@ -109,6 +118,7 @@ export const ProjetsPage = () => {
       closeModal();
     },
     onError: (error: any) => {
+      console.error('Erreur création:', error);
       toast.error(error.response?.data?.error || 'Erreur lors de la création');
     },
   });
@@ -149,6 +159,23 @@ export const ProjetsPage = () => {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.error || 'Erreur lors de l\'assignation');
+    },
+  });
+
+  // Mutation pour créer une nouvelle tâche
+  const createTacheMutation = useMutation({
+    mutationFn: (data: { tache_type: string; code: string; couleur: string }) =>
+      tachesApi.create(data),
+    onSuccess: (data) => {
+      toast.success('Nouvelle tâche créée');
+      queryClient.invalidateQueries({ queryKey: ['tache-types'] });
+      // Sélectionner automatiquement la nouvelle tâche
+      setSelectedTaches((prev) => [...prev, parseInt(data.id)]);
+      setIsNewTacheModalOpen(false);
+      setNewTache({ tache_type: '', code: '', couleur: '#10B981' });
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la création');
     },
   });
 
@@ -199,13 +226,20 @@ export const ProjetsPage = () => {
   };
 
   const toggleTache = (tacheId: number) => {
-    setSelectedTaches((prev) =>
-      prev.includes(tacheId) ? prev.filter((t) => t !== tacheId) : [...prev, tacheId]
-    );
+    console.log('Toggle tache ID:', tacheId, 'type:', typeof tacheId);
+    setSelectedTaches((prev) => {
+      const newTaches = prev.includes(tacheId) ? prev.filter((t) => t !== tacheId) : [...prev, tacheId];
+      console.log('Selected taches après toggle:', newTaches);
+      return newTaches;
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    console.log('=== handleSubmit ===');
+    console.log('Form:', form);
+    console.log('Selected taches:', selectedTaches);
 
     if (!form.code_projet || !form.nom) {
       toast.error('Veuillez remplir les champs obligatoires');
@@ -230,6 +264,9 @@ export const ProjetsPage = () => {
       priorite: form.priorite ? parseInt(form.priorite) : 1,
       actif: form.actif,
     };
+
+    console.log('Projet data:', projetData);
+    console.log('Taches à envoyer:', selectedTaches);
 
     if (selectedProjet) {
       updateMutation.mutate({ id: selectedProjet.id, data: projetData });
@@ -330,9 +367,11 @@ export const ProjetsPage = () => {
   // Filtrer les salariés selon leur fonction pour l'assignation
   const getSalariesForTache = (tacheTypeId: string) => {
     const tache = tacheTypes.find((t: any) => t.id?.toString() === tacheTypeId);
-    if (!tache) return salaries.filter((s: any) => s.actif);
+    const salariesActifs = salaries.filter((s: any) => s.actif);
     
-    // Mapping fonction → codes de tâche acceptés
+    if (!tache) return salariesActifs;
+    
+    // Mapping fonction → codes de tâche recommandés
     const tacheCode = tache.code;
     const fonctionToTacheCode: Record<string, string[]> = {
       Cableur: ['CAB'],
@@ -343,13 +382,17 @@ export const ProjetsPage = () => {
       Autre: ['AUT', 'MES', 'ETU'],
     };
 
-    return salaries.filter((s: any) => {
-      if (!s.actif) return false;
+    // Retourner TOUS les salariés actifs, avec une propriété "recommande"
+    return salariesActifs.map((s: any) => {
       const fonction = s.fonction?.fonction;
-      if (!fonction) return true; // Si pas de fonction, peut faire toutes les tâches
-      const codesAcceptes = fonctionToTacheCode[fonction];
-      if (!codesAcceptes) return true;
-      return codesAcceptes.includes(tacheCode);
+      const codesAcceptes = fonction ? fonctionToTacheCode[fonction] : null;
+      const recommande = !codesAcceptes || codesAcceptes.includes(tacheCode);
+      return { ...s, recommande };
+    }).sort((a: any, b: any) => {
+      // Salariés recommandés en premier
+      if (a.recommande && !b.recommande) return -1;
+      if (!a.recommande && b.recommande) return 1;
+      return 0;
     });
   };
 
@@ -630,9 +673,19 @@ export const ProjetsPage = () => {
 
           {/* Tâches du projet */}
           <div>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">
-              Tâches du projet * <span className="text-gray-400 font-normal">(sélectionnez au moins une)</span>
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-700">
+                Tâches du projet * <span className="text-gray-400 font-normal">(sélectionnez au moins une)</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsNewTacheModalOpen(true)}
+                className="flex items-center gap-1 px-2 py-1 text-sm text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Nouvelle tâche
+              </button>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {tacheTypes.map((tache: any) => (
                 <button
@@ -774,15 +827,14 @@ export const ProjetsPage = () => {
                   ...(assignTache
                     ? getSalariesForTache(assignTache).map((s: any) => ({
                         value: s.id.toString(),
-                        label: `${s.prenom} ${s.nom}${s.fonction ? ` (${s.fonction.fonction})` : ''}`,
+                        label: `${s.recommande ? '★ ' : ''}${s.prenom} ${s.nom}${s.fonction ? ` (${s.fonction.fonction})` : ''}${!s.recommande ? ' - autre spécialité' : ''}`,
                       }))
                     : []),
                 ]}
               />
 
               <p className="text-sm text-gray-500">
-                Les salariés affichés correspondent à la tâche sélectionnée selon leur fonction.
-                Vous pouvez assigner le même salarié à plusieurs tâches.
+                ★ = Salarié recommandé selon sa fonction. Vous pouvez assigner n'importe quel salarié à n'importe quelle tâche.
               </p>
             </>
           ) : (
@@ -829,6 +881,80 @@ export const ProjetsPage = () => {
               isLoading={deleteMutation.isPending}
             >
               Supprimer
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Création nouvelle tâche */}
+      <Modal
+        isOpen={isNewTacheModalOpen}
+        onClose={() => {
+          setIsNewTacheModalOpen(false);
+          setNewTache({ tache_type: '', code: '', couleur: '#10B981' });
+        }}
+        title="Créer un nouveau type de tâche"
+        size="md"
+      >
+        <div className="space-y-4">
+          <Input
+            label="Nom de la tâche *"
+            value={newTache.tache_type}
+            onChange={(e) => setNewTache({ ...newTache, tache_type: e.target.value })}
+            placeholder="Ex: Maintenance, Dépannage..."
+          />
+          <Input
+            label="Code (généré automatiquement si vide)"
+            value={newTache.code}
+            onChange={(e) => setNewTache({ ...newTache, code: e.target.value.toUpperCase() })}
+            placeholder="Ex: MAINT, DEP..."
+            maxLength={10}
+          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Couleur
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={newTache.couleur}
+                onChange={(e) => setNewTache({ ...newTache, couleur: e.target.value })}
+                className="w-12 h-10 p-1 border rounded cursor-pointer"
+              />
+              <span
+                className="px-3 py-1 rounded text-sm font-medium"
+                style={{ backgroundColor: `${newTache.couleur}20`, color: newTache.couleur }}
+              >
+                Aperçu
+              </span>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsNewTacheModalOpen(false);
+                setNewTache({ tache_type: '', code: '', couleur: '#10B981' });
+              }}
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={() => {
+                if (!newTache.tache_type) {
+                  toast.error('Le nom de la tâche est requis');
+                  return;
+                }
+                // Générer le code automatiquement si vide
+                const code = newTache.code || newTache.tache_type.substring(0, 4).toUpperCase();
+                createTacheMutation.mutate({
+                  ...newTache,
+                  code,
+                });
+              }}
+              isLoading={createTacheMutation.isPending}
+            >
+              Créer la tâche
             </Button>
           </div>
         </div>

@@ -66,6 +66,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/pointages/semaine/:annee/:semaine - Pointages d'une semaine pour le salarié connecté
+
 router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const annee = parseInt(req.params.annee);
@@ -87,6 +88,12 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
         }
       }
     });
+    // Ajouter tache_type_id et projet_id explicitement pour le frontend
+    const pointagesAvecIds = pointages.map(p => ({
+      ...p,
+      projet_id: p.projet_id.toString(),
+      tache_type_id: p.tache_type_id.toString(),
+    }));
 
     // Récupérer la validation de la semaine
     const validation = await prisma.validationSemaine.findUnique({
@@ -114,7 +121,7 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
     });
 
     res.json({
-      pointages: serializeBigInt(pointages),
+      pointages: serializeBigInt(pointagesAvecIds),
       validation: validation ? serializeBigInt(validation) : null,
       jours_feries: serializeBigInt(joursFeries),
       dates: {

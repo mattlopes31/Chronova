@@ -164,6 +164,9 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 router.post('/', authMiddleware, managerMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const data = req.body;
+    
+    console.log('=== DEBUG: Création projet ===');
+    console.log('Data reçue:', JSON.stringify(data, null, 2));
 
     if (!data.nom) {
       return res.status(400).json({ error: 'Nom du projet requis' });
@@ -171,6 +174,7 @@ router.post('/', authMiddleware, managerMiddleware, async (req: AuthRequest, res
 
     // taches peut être un tableau d'IDs de tache_type
     const tacheTypeIds: number[] = data.taches || [];
+    console.log('Taches reçues:', tacheTypeIds);
 
     // Utiliser une transaction pour créer projet + tâches ensemble
     const result = await prisma.$transaction(async (tx) => {
@@ -190,10 +194,14 @@ router.post('/', authMiddleware, managerMiddleware, async (req: AuthRequest, res
           priorite: data.priorite || 1
         }
       });
+      
+      console.log('Projet créé avec ID:', projet.id.toString());
 
       // Créer les tâches du projet
       if (tacheTypeIds.length > 0) {
+        console.log('Création de', tacheTypeIds.length, 'tâches...');
         for (const tacheTypeId of tacheTypeIds) {
+          console.log('  - Création tache_projet pour tache_type_id:', tacheTypeId);
           await tx.tacheProjet.create({
             data: {
               projet_id: projet.id,
