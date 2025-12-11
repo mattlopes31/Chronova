@@ -35,6 +35,7 @@ CREATE TYPE salarie_status_enum AS ENUM ('Salarie', 'Interim', 'Sous_traitant', 
 
 -- Type de congés (amélioration)
 CREATE TYPE conge_type_enum AS ENUM ('CP', 'RTT', 'Maladie', 'Sans_solde', 'Formation', 'Autre');
+ALTER TYPE conge_type_enum ADD VALUE 'Deplacement';
 
 -- Statut de validation (amélioration)
 CREATE TYPE validation_status_enum AS ENUM ('Brouillon', 'Soumis', 'Valide', 'Rejete');

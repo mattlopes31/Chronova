@@ -66,12 +66,14 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/pointages/semaine/:annee/:semaine - Pointages d'une semaine pour le salarié connecté
-
 router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const annee = parseInt(req.params.annee);
     const semaine = parseInt(req.params.semaine);
     const salarie_id = req.user!.id;
+
+    console.log('=== GET pointages semaine ===');
+    console.log('Salarié:', salarie_id.toString(), 'Année:', annee, 'Semaine:', semaine);
 
     const pointages = await prisma.salariePointage.findMany({
       where: {
@@ -88,6 +90,9 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
         }
       }
     });
+
+    console.log('Pointages trouvés:', pointages.length);
+    
     // Ajouter tache_type_id et projet_id explicitement pour le frontend
     const pointagesAvecIds = pointages.map(p => ({
       ...p,
@@ -106,6 +111,53 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
       }
     });
 
+    // Récupérer TOUS les congés de la semaine (peut y avoir plusieurs types)
+    const congesListe = await prisma.salarieCp.findMany({
+      where: {
+        salarie_id,
+        annee,
+        semaine
+      }
+    });
+
+    // Fusionner les congés par jour avec leur type
+    const congesFusionnes = {
+      cp_lundi: false,
+      cp_mardi: false,
+      cp_mercredi: false,
+      cp_jeudi: false,
+      cp_vendredi: false,
+      type_lundi: 'CP',
+      type_mardi: 'CP',
+      type_mercredi: 'CP',
+      type_jeudi: 'CP',
+      type_vendredi: 'CP',
+      type_conge: 'CP' // Compatibilité
+    };
+
+    for (const conge of congesListe) {
+      if (conge.cp_lundi) {
+        congesFusionnes.cp_lundi = true;
+        congesFusionnes.type_lundi = conge.type_conge;
+      }
+      if (conge.cp_mardi) {
+        congesFusionnes.cp_mardi = true;
+        congesFusionnes.type_mardi = conge.type_conge;
+      }
+      if (conge.cp_mercredi) {
+        congesFusionnes.cp_mercredi = true;
+        congesFusionnes.type_mercredi = conge.type_conge;
+      }
+      if (conge.cp_jeudi) {
+        congesFusionnes.cp_jeudi = true;
+        congesFusionnes.type_jeudi = conge.type_conge;
+      }
+      if (conge.cp_vendredi) {
+        congesFusionnes.cp_vendredi = true;
+        congesFusionnes.type_vendredi = conge.type_conge;
+      }
+    }
+
     // Récupérer les jours fériés de la semaine
     const monday = getMondayOfWeek(annee, semaine);
     const sunday = new Date(monday);
@@ -123,6 +175,7 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
     res.json({
       pointages: serializeBigInt(pointagesAvecIds),
       validation: validation ? serializeBigInt(validation) : null,
+      conges: congesListe.length > 0 ? congesFusionnes : null,
       jours_feries: serializeBigInt(joursFeries),
       dates: {
         lundi: monday.toISOString().split('T')[0],

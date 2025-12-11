@@ -47,7 +47,6 @@ interface SalarieResume {
   heuresDues: number;
   joursCP: number;
   status: 'Brouillon' | 'Soumis' | 'Valide' | 'Rejete';
-  validationId?: number;
   projets: {
     id: number;
     nom: string;
@@ -64,7 +63,7 @@ export const AdminPointages = () => {
   const [semaine, setSemaine] = useState(currentWeek.week);
   const [filtreProjet, setFiltreProjet] = useState<string>('');
   const [filtreSalarie, setFiltreSalarie] = useState<string>('');
-  const [selectedValidation, setSelectedValidation] = useState<{id: number; action: 'valider' | 'rejeter'} | null>(null);
+  const [selectedValidation, setSelectedValidation] = useState<{salarieId: number; action: 'valider' | 'rejeter'} | null>(null);
   const [commentaireRejet, setCommentaireRejet] = useState('');
 
   // Queries
@@ -85,7 +84,8 @@ export const AdminPointages = () => {
 
   // Mutations
   const validerMutation = useMutation({
-    mutationFn: ({ id }: { id: number }) => pointagesApi.valider(id),
+    mutationFn: ({ salarie_id, annee, semaine }: { salarie_id: string; annee: number; semaine: number }) => 
+      pointagesApi.valider(salarie_id, annee, semaine),
     onSuccess: () => {
       toast.success('Semaine validée');
       queryClient.invalidateQueries({ queryKey: ['admin-pointages'] });
@@ -95,8 +95,8 @@ export const AdminPointages = () => {
   });
 
   const rejeterMutation = useMutation({
-    mutationFn: ({ id, commentaire }: { id: number; commentaire: string }) => 
-      pointagesApi.rejeter(id, commentaire),
+    mutationFn: ({ salarie_id, annee, semaine, commentaire }: { salarie_id: string; annee: number; semaine: number; commentaire: string }) => 
+      pointagesApi.rejeter(salarie_id, annee, semaine, commentaire),
     onSuccess: () => {
       toast.success('Semaine rejetée');
       queryClient.invalidateQueries({ queryKey: ['admin-pointages'] });
@@ -108,15 +108,18 @@ export const AdminPointages = () => {
 
   // Calcul des résumés par salarié
   const salariesResume = useMemo<SalarieResume[]>(() => {
-    if (!pointagesData?.pointages) return [];
+    // L'API renvoie directement un tableau de pointages
+    const pointages = Array.isArray(pointagesData) ? pointagesData : [];
+    
+    if (pointages.length === 0) return [];
 
     const resumeMap = new Map<number, SalarieResume>();
 
-    pointagesData.pointages.forEach((p: any) => {
-      const salarieId = p.salarie_id;
+    pointages.forEach((p: any) => {
+      const salarieId = parseInt(p.salarie_id);
       
       if (!resumeMap.has(salarieId)) {
-        const salarie = salaries.find((s: any) => s.id === salarieId);
+        const salarie = salaries.find((s: any) => parseInt(s.id) === salarieId);
         resumeMap.set(salarieId, {
           id: salarieId,
           nom: salarie?.nom || p.salarie?.nom || 'Inconnu',
@@ -132,21 +135,37 @@ export const AdminPointages = () => {
       }
 
       const resume = resumeMap.get(salarieId)!;
-      const heures = parseFloat(p.heures_travaillees) || 0;
+      
+      // Calculer les heures depuis les champs heure_xxx
+      const heures = 
+        Number(p.heure_lundi || 0) +
+        Number(p.heure_mardi || 0) +
+        Number(p.heure_mercredi || 0) +
+        Number(p.heure_jeudi || 0) +
+        Number(p.heure_vendredi || 0) +
+        Number(p.heure_samedi || 0) +
+        Number(p.heure_dimanche || 0);
+      
       resume.totalHeures += heures;
 
       // Ajouter au projet existant ou créer
-      const projetIndex = resume.projets.findIndex(pr => pr.id === p.projet_id);
+      const projetId = parseInt(p.projet_id);
+      const projetIndex = resume.projets.findIndex(pr => pr.id === projetId);
       if (projetIndex >= 0) {
         resume.projets[projetIndex].heures += heures;
       } else {
-        const projet = projets.find((pr: any) => pr.id === p.projet_id);
+        const projet = projets.find((pr: any) => parseInt(pr.id) === projetId);
         resume.projets.push({
-          id: p.projet_id,
+          id: projetId,
           nom: projet?.nom || p.projet?.nom || 'Projet inconnu',
           code: projet?.code_projet || p.projet?.code_projet || '',
           heures,
         });
+      }
+      
+      // Mettre à jour le status depuis le pointage
+      if (p.validation_status && p.validation_status !== 'Brouillon') {
+        resume.status = p.validation_status;
       }
     });
 
@@ -156,17 +175,6 @@ export const AdminPointages = () => {
       resume.heuresSup = Math.max(0, resume.totalHeures - HEURES_SEMAINE_NORMALE);
       resume.heuresDues = Math.max(0, HEURES_SEMAINE_NORMALE - resume.totalHeures);
     });
-
-    // Récupérer les statuts de validation
-    if (pointagesData.validations) {
-      pointagesData.validations.forEach((v: any) => {
-        const resume = resumeMap.get(v.salarie_id);
-        if (resume) {
-          resume.status = v.status;
-          resume.validationId = v.id;
-        }
-      });
-    }
 
     return Array.from(resumeMap.values());
   }, [pointagesData, salaries, projets]);
@@ -215,21 +223,30 @@ export const AdminPointages = () => {
 
   const weekDays = getWeekDays(annee, semaine);
 
-  const handleValidation = (validationId: number, action: 'valider' | 'rejeter') => {
-    setSelectedValidation({ id: validationId, action });
+  const handleValidation = (salarieId: number, action: 'valider' | 'rejeter') => {
+    setSelectedValidation({ salarieId, action });
   };
 
   const confirmAction = () => {
     if (!selectedValidation) return;
     
     if (selectedValidation.action === 'valider') {
-      validerMutation.mutate({ id: selectedValidation.id });
+      validerMutation.mutate({ 
+        salarie_id: selectedValidation.salarieId.toString(), 
+        annee, 
+        semaine 
+      });
     } else {
       if (!commentaireRejet.trim()) {
         toast.error('Veuillez indiquer un motif de rejet');
         return;
       }
-      rejeterMutation.mutate({ id: selectedValidation.id, commentaire: commentaireRejet });
+      rejeterMutation.mutate({ 
+        salarie_id: selectedValidation.salarieId.toString(), 
+        annee, 
+        semaine, 
+        commentaire: commentaireRejet 
+      });
     }
   };
 
@@ -528,17 +545,17 @@ export const AdminPointages = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
-                        {salarie.status === 'Soumis' && salarie.validationId && (
+                        {salarie.status === 'Soumis' && (
                           <>
                             <button
-                              onClick={() => handleValidation(salarie.validationId!, 'valider')}
+                              onClick={() => handleValidation(salarie.id, 'valider')}
                               className="p-2 rounded-lg bg-green-100 text-green-600 hover:bg-green-200 transition-colors"
                               title="Valider"
                             >
                               <Check className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => handleValidation(salarie.validationId!, 'rejeter')}
+                              onClick={() => handleValidation(salarie.id, 'rejeter')}
                               className="p-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
                               title="Rejeter"
                             >

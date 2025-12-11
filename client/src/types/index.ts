@@ -2,7 +2,7 @@
 
 export type UserRole = 'Admin' | 'Manager' | 'Salarie';
 export type ValidationStatus = 'Brouillon' | 'Soumis' | 'Valide' | 'Rejete';
-export type CongeType = 'CP' | 'RTT' | 'Maladie' | 'Sans_solde' | 'Autre';
+export type CongeType = 'CP' | 'RTT' | 'Maladie' | 'Deplacement' | 'Formation' | 'Sans_solde' | 'Autre';
 
 export interface Salarie {
   id: string;
@@ -142,6 +142,12 @@ export interface SalarieCp {
   cp_jeudi: boolean;
   cp_vendredi: boolean;
   type_conge: CongeType;
+  // Types par jour (nouveau)
+  type_lundi?: CongeType;
+  type_mardi?: CongeType;
+  type_mercredi?: CongeType;
+  type_jeudi?: CongeType;
+  type_vendredi?: CongeType;
   commentaire?: string;
   validation_status: ValidationStatus;
 }
@@ -238,13 +244,16 @@ export interface PointageInput {
 export interface CongeInput {
   annee: number;
   semaine: number;
-  jours: {
-    lundi: boolean;
-    mardi: boolean;
-    mercredi: boolean;
-    jeudi: boolean;
-    vendredi: boolean;
-  };
-  type_conge: CongeType;
-  commentaire?: string;
+  cp_lundi?: boolean;
+  cp_mardi?: boolean;
+  cp_mercredi?: boolean;
+  cp_jeudi?: boolean;
+  cp_vendredi?: boolean;
+  type_lundi?: CongeType;
+  type_mardi?: CongeType;
+  type_mercredi?: CongeType;
+  type_jeudi?: CongeType;
+  type_vendredi?: CongeType;
+  type_conge?: CongeType;
+  motif?: string;
 }

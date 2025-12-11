@@ -12,6 +12,7 @@ import { AdminPointagesPage } from '@/pages/AdminPointagesPage';
 import { SalariesPage } from '@/pages/SalariesPage';
 import { ProjetsPage } from '@/pages/ProjetsPage';
 import { ClientsPage } from '@/pages/ClientsPage';
+import { MesCongesPage } from '@/pages/MesCongesPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -143,11 +144,12 @@ const App = () => {
             </ProtectedRoute>
           }
         />
+        {/* Mes Congés - accessible à tous les authentifiés sauf Admin */}
         <Route
           path="/conges"
           element={
-            <ProtectedRoute>
-              <div className="text-center py-12 text-gray-500">Page Congés - En développement</div>
+            <ProtectedRoute noAdmin>
+              <MesCongesPage />
             </ProtectedRoute>
           }
         />

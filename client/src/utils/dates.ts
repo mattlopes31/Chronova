@@ -18,20 +18,35 @@ import { fr } from 'date-fns/locale';
 
 // Obtenir le lundi d'une semaine donnée
 export const getMondayOfWeek = (year: number, week: number): Date => {
-  // Créer une date dans l'année souhaitée
-  let date = new Date(year, 0, 4); // 4 janvier est toujours en semaine 1
-  date = setYear(date, year);
-  date = setWeek(date, week, { weekStartsOn: 1, locale: fr });
-  return startOfWeek(date, { weekStartsOn: 1 });
+  try {
+    if (!year || !week || week < 1 || week > 53) {
+      return new Date(); // Retourner aujourd'hui par défaut
+    }
+    // Créer une date dans l'année souhaitée
+    let date = new Date(year, 0, 4); // 4 janvier est toujours en semaine 1
+    date = setYear(date, year);
+    date = setWeek(date, week, { weekStartsOn: 1, locale: fr });
+    return startOfWeek(date, { weekStartsOn: 1 });
+  } catch (e) {
+    console.warn('getMondayOfWeek error:', e);
+    return new Date();
+  }
 };
 
 // Obtenir les jours de la semaine (lundi à dimanche)
 export const getWeekDays = (year: number, week: number): Date[] => {
-  const monday = getMondayOfWeek(year, week);
-  return eachDayOfInterval({
-    start: monday,
-    end: addDays(monday, 6),
-  });
+  try {
+    if (!year || !week) return [];
+    const monday = getMondayOfWeek(year, week);
+    if (isNaN(monday.getTime())) return [];
+    return eachDayOfInterval({
+      start: monday,
+      end: addDays(monday, 6),
+    });
+  } catch (e) {
+    console.warn('getWeekDays error:', e);
+    return [];
+  }
 };
 
 // Obtenir semaine et année actuelles
@@ -63,15 +78,29 @@ export const getPreviousWeek = (year: number, week: number): { year: number; wee
 };
 
 // Formatage
-export const formatDate = (date: Date | string, formatStr: string = 'dd/MM/yyyy'): string => {
-  const d = typeof date === 'string' ? parseISO(date) : date;
-  return format(d, formatStr, { locale: fr });
+export const formatDate = (date: Date | string | null | undefined, formatStr: string = 'dd/MM/yyyy'): string => {
+  if (!date) return '';
+  try {
+    const d = typeof date === 'string' ? parseISO(date) : date;
+    if (isNaN(d.getTime())) return '';
+    return format(d, formatStr, { locale: fr });
+  } catch (e) {
+    console.warn('formatDate error:', e, date);
+    return '';
+  }
 };
 
 export const formatWeekLabel = (year: number, week: number): string => {
-  const monday = getMondayOfWeek(year, week);
-  const sunday = addDays(monday, 6);
-  return `Semaine ${week} - ${format(monday, 'd MMM', { locale: fr })} au ${format(sunday, 'd MMM yyyy', { locale: fr })}`;
+  try {
+    if (!year || !week) return '';
+    const monday = getMondayOfWeek(year, week);
+    if (isNaN(monday.getTime())) return '';
+    const sunday = addDays(monday, 6);
+    return `Semaine ${week} - ${format(monday, 'd MMM', { locale: fr })} au ${format(sunday, 'd MMM yyyy', { locale: fr })}`;
+  } catch (e) {
+    console.warn('formatWeekLabel error:', e);
+    return `Semaine ${week}`;
+  }
 };
 
 export const getDayName = (dayIndex: number): string => {
@@ -124,17 +153,24 @@ export const getYears = (): Array<{ value: number; label: string }> => {
 
 // Liste des semaines d'une année
 export const getWeeksOfYear = (year: number): Array<{ value: number; label: string }> => {
-  const weeks = [];
-  // On peut avoir 52 ou 53 semaines selon l'année
-  const maxWeeks = getWeek(new Date(year, 11, 31), { weekStartsOn: 1, locale: fr });
-  for (let w = 1; w <= maxWeeks; w++) {
-    const monday = getMondayOfWeek(year, w);
-    weeks.push({
-      value: w,
-      label: `S${w} - ${format(monday, 'dd/MM', { locale: fr })}`,
-    });
+  try {
+    if (!year) return [];
+    const weeks = [];
+    // On peut avoir 52 ou 53 semaines selon l'année
+    const maxWeeks = getWeek(new Date(year, 11, 28), { weekStartsOn: 1, locale: fr }) || 52;
+    for (let w = 1; w <= Math.min(maxWeeks, 53); w++) {
+      const monday = getMondayOfWeek(year, w);
+      const label = isNaN(monday.getTime()) 
+        ? `S${w}`
+        : `S${w} - ${format(monday, 'dd/MM', { locale: fr })}`;
+      weeks.push({ value: w, label });
+    }
+    return weeks;
+  } catch (e) {
+    console.warn('getWeeksOfYear error:', e);
+    // Retourner une liste par défaut de 52 semaines
+    return Array.from({ length: 52 }, (_, i) => ({ value: i + 1, label: `S${i + 1}` }));
   }
-  return weeks;
 };
 
 export { parseISO, format, isSameDay, isWeekend };

@@ -83,55 +83,66 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Année et semaine requises' });
     }
 
-    // Vérifier si une demande existe déjà
-    const existing = await prisma.salarieCp.findUnique({
-      where: {
-        salarie_id_annee_semaine_type_conge: {
-          salarie_id,
-          annee: data.annee,
-          semaine: data.semaine,
-          type_conge: data.type_conge || 'CP'
-        }
-      }
-    });
+    // Si on a des types par jour, créer/mettre à jour les entrées par type
+    const typesParJour = {
+      lundi: data.type_lundi || data.type_conge || 'CP',
+      mardi: data.type_mardi || data.type_conge || 'CP',
+      mercredi: data.type_mercredi || data.type_conge || 'CP',
+      jeudi: data.type_jeudi || data.type_conge || 'CP',
+      vendredi: data.type_vendredi || data.type_conge || 'CP',
+    };
 
-    if (existing) {
-      // Mise à jour
-      const conge = await prisma.salarieCp.update({
-        where: { id: existing.id },
-        data: {
-          cp_lundi: data.cp_lundi || false,
-          cp_mardi: data.cp_mardi || false,
-          cp_mercredi: data.cp_mercredi || false,
-          cp_jeudi: data.cp_jeudi || false,
-          cp_vendredi: data.cp_vendredi || false,
-          cp_samedi: data.cp_samedi || false,
-          cp_dimanche: data.cp_dimanche || false,
-          motif: data.motif,
-          validation_status: 'Brouillon'
+    // Regrouper les jours par type de congé
+    const joursParType: Record<string, { lundi: boolean; mardi: boolean; mercredi: boolean; jeudi: boolean; vendredi: boolean }> = {};
+    
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi'] as const;
+    
+    for (const jour of jours) {
+      const cpKey = `cp_${jour}` as keyof typeof data;
+      if (data[cpKey]) {
+        const type = typesParJour[jour];
+        if (!joursParType[type]) {
+          joursParType[type] = { lundi: false, mardi: false, mercredi: false, jeudi: false, vendredi: false };
         }
-      });
-      return res.json(serializeBigInt(conge));
+        joursParType[type][jour] = true;
+      }
     }
 
-    const conge = await prisma.salarieCp.create({
-      data: {
+    // Supprimer les anciennes entrées de congé pour cette semaine
+    await prisma.salarieCp.deleteMany({
+      where: {
         salarie_id,
         annee: data.annee,
-        semaine: data.semaine,
-        type_conge: data.type_conge || 'CP',
-        cp_lundi: data.cp_lundi || false,
-        cp_mardi: data.cp_mardi || false,
-        cp_mercredi: data.cp_mercredi || false,
-        cp_jeudi: data.cp_jeudi || false,
-        cp_vendredi: data.cp_vendredi || false,
-        cp_samedi: data.cp_samedi || false,
-        cp_dimanche: data.cp_dimanche || false,
-        motif: data.motif
+        semaine: data.semaine
       }
     });
 
-    res.status(201).json(serializeBigInt(conge));
+    // Créer une entrée pour chaque type utilisé
+    const results = [];
+    for (const [type, joursActifs] of Object.entries(joursParType)) {
+      const hasAnyDay = Object.values(joursActifs).some(v => v);
+      if (hasAnyDay) {
+        const conge = await prisma.salarieCp.create({
+          data: {
+            salarie_id,
+            annee: data.annee,
+            semaine: data.semaine,
+            type_conge: type as any,
+            cp_lundi: joursActifs.lundi,
+            cp_mardi: joursActifs.mardi,
+            cp_mercredi: joursActifs.mercredi,
+            cp_jeudi: joursActifs.jeudi,
+            cp_vendredi: joursActifs.vendredi,
+            cp_samedi: false,
+            cp_dimanche: false,
+            motif: data.motif
+          }
+        });
+        results.push(conge);
+      }
+    }
+
+    res.status(201).json(serializeBigInt(results.length > 0 ? results[0] : { message: 'Aucun congé enregistré' }));
   } catch (error) {
     console.error('Erreur création congé:', error);
     res.status(500).json({ error: 'Erreur serveur' });

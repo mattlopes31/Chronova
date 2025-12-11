@@ -140,7 +140,36 @@ router.get('/validations', authMiddleware, managerMiddleware, async (req: AuthRe
       orderBy: [{ annee: 'asc' }, { semaine: 'asc' }]
     });
 
-    res.json(serializeBigInt(validations));
+    // Pour chaque validation, calculer le total des heures
+    const validationsAvecHeures = await Promise.all(
+      validations.map(async (v) => {
+        const pointages = await prisma.salariePointage.findMany({
+          where: {
+            salarie_id: v.salarie_id,
+            annee: v.annee,
+            semaine: v.semaine
+          }
+        });
+
+        const totalHeures = pointages.reduce((sum, p) => {
+          return sum + 
+            Number(p.heure_lundi || 0) +
+            Number(p.heure_mardi || 0) +
+            Number(p.heure_mercredi || 0) +
+            Number(p.heure_jeudi || 0) +
+            Number(p.heure_vendredi || 0) +
+            Number(p.heure_samedi || 0) +
+            Number(p.heure_dimanche || 0);
+        }, 0);
+
+        return {
+          ...v,
+          total_heures_travaillees: totalHeures
+        };
+      })
+    );
+
+    res.json(serializeBigInt(validationsAvecHeures));
   } catch (error) {
     console.error('Erreur validations:', error);
     res.status(500).json({ error: 'Erreur serveur' });

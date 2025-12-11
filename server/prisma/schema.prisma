@@ -51,6 +51,7 @@ enum CongeTypeEnum {
   CP
   RTT
   Maladie
+  Deplacement
   Sans_solde
   Formation
   Autre
