@@ -9,7 +9,6 @@ import {
   Mail,
   Phone,
   MapPin,
-  Globe,
   UserCheck,
   UserX,
 } from 'lucide-react';
@@ -18,7 +17,7 @@ import { clientsApi } from '@/services/api';
 import { Card, Button, Badge, Modal, Input, Select, Checkbox, Spinner, EmptyState } from '@/components/ui';
 
 interface ClientForm {
-  id?: number;
+  id?: string;
   nom: string;
   code_client: string;
   email: string;
@@ -27,7 +26,6 @@ interface ClientForm {
   code_postal: string;
   ville: string;
   pays: string;
-  site_web: string;
   contact_nom: string;
   contact_email: string;
   contact_tel: string;
@@ -44,7 +42,6 @@ const initialForm: ClientForm = {
   code_postal: '',
   ville: '',
   pays: 'France',
-  site_web: '',
   contact_nom: '',
   contact_email: '',
   contact_tel: '',
@@ -81,7 +78,7 @@ export const ClientsPage = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => clientsApi.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => clientsApi.update(id, data),
     onSuccess: () => {
       toast.success('Client mis à jour');
       queryClient.invalidateQueries({ queryKey: ['clients'] });
@@ -110,7 +107,7 @@ export const ClientsPage = () => {
     const matchSearch =
       c.nom?.toLowerCase().includes(search.toLowerCase()) ||
       c.code_client?.toLowerCase().includes(search.toLowerCase()) ||
-      c.email?.toLowerCase().includes(search.toLowerCase()) ||
+      (c.contact_email || c.email)?.toLowerCase().includes(search.toLowerCase()) ||
       c.ville?.toLowerCase().includes(search.toLowerCase());
 
     const matchActif =
@@ -134,13 +131,14 @@ export const ClientsPage = () => {
       id: client.id,
       nom: client.nom || '',
       code_client: client.code_client || '',
-      email: client.email || '',
-      tel: client.tel || '',
+      // Utiliser contact_email et contact_tel car email et tel n'existent pas dans le schéma
+      email: client.contact_email || client.email || '',
+      tel: client.contact_tel || client.tel || '',
       adresse: client.adresse || '',
-      code_postal: client.code_postal || '',
+      code_postal: client.cp || client.code_postal || '',
       ville: client.ville || '',
-      pays: client.pays || 'France',
-      site_web: client.site_web || '',
+      pays: client.pays?.country_name || client.pays || 'France',
+      pays_id: client.pays_id || client.pays?.id || '',
       contact_nom: client.contact_nom || '',
       contact_email: client.contact_email || '',
       contact_tel: client.contact_tel || '',
@@ -167,16 +165,16 @@ export const ClientsPage = () => {
     const data = {
       nom: form.nom,
       code_client: form.code_client || null,
-      email: form.email || null,
-      tel: form.tel || null,
+      // email et tel sont mappés vers contact_email et contact_tel côté backend
+      email: form.email || form.contact_email || null,
+      tel: form.tel || form.contact_tel || null,
       adresse: form.adresse || null,
       code_postal: form.code_postal || null,
       ville: form.ville || null,
-      pays: form.pays || null,
-      site_web: form.site_web || null,
+      pays_id: form.pays_id || null,
       contact_nom: form.contact_nom || null,
-      contact_email: form.contact_email || null,
-      contact_tel: form.contact_tel || null,
+      contact_email: form.contact_email || form.email || null,
+      contact_tel: form.contact_tel || form.tel || null,
       notes: form.notes || null,
       actif: form.actif,
     };
@@ -297,37 +295,24 @@ export const ClientsPage = () => {
               </div>
 
               <div className="space-y-2 text-sm text-gray-600 mb-4">
-                {client.email && (
+                {(client.contact_email || client.email) && (
                   <div className="flex items-center gap-2">
                     <Mail className="w-4 h-4 text-gray-400" />
-                    <span className="truncate">{client.email}</span>
+                    <span className="truncate">{client.contact_email || client.email}</span>
                   </div>
                 )}
-                {client.tel && (
+                {(client.contact_tel || client.tel) && (
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-gray-400" />
-                    <span>{client.tel}</span>
+                    <span>{client.contact_tel || client.tel}</span>
                   </div>
                 )}
                 {client.ville && (
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-gray-400" />
                     <span>
-                      {client.code_postal} {client.ville}
+                      {client.cp || client.code_postal} {client.ville}
                     </span>
-                  </div>
-                )}
-                {client.site_web && (
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-gray-400" />
-                    <a
-                      href={client.site_web.startsWith('http') ? client.site_web : `https://${client.site_web}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary-600 hover:underline truncate"
-                    >
-                      {client.site_web}
-                    </a>
                   </div>
                 )}
               </div>
@@ -400,14 +385,6 @@ export const ClientsPage = () => {
                 onChange={(e) => setForm({ ...form, tel: e.target.value })}
                 placeholder="01 23 45 67 89"
               />
-              <div className="md:col-span-2">
-                <Input
-                  label="Site web"
-                  value={form.site_web}
-                  onChange={(e) => setForm({ ...form, site_web: e.target.value })}
-                  placeholder="www.entreprise.fr"
-                />
-              </div>
             </div>
           </div>
 

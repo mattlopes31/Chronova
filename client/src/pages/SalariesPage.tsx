@@ -21,7 +21,7 @@ import { format, isPast, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 interface SalarieForm {
-  id?: number;
+  id?: string;
   nom: string;
   prenom: string;
   email: string;
@@ -66,17 +66,17 @@ export const SalariesPage = () => {
   // Queries
   const { data: salaries = [], isLoading } = useQuery({
     queryKey: ['salaries'],
-    queryFn: salariesApi.getAll,
+    queryFn: () => salariesApi.getAll(),
   });
 
   const { data: fonctions = [] } = useQuery({
     queryKey: ['fonctions'],
-    queryFn: salariesApi.getFonctions,
+    queryFn: () => salariesApi.getFonctions(),
   });
 
   const { data: statuts = [] } = useQuery({
     queryKey: ['statuts'],
-    queryFn: salariesApi.getStatuts,
+    queryFn: () => salariesApi.getStatuts(),
   });
 
   // Mutations
@@ -93,7 +93,7 @@ export const SalariesPage = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => salariesApi.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => salariesApi.update(id, data),
     onSuccess: () => {
       toast.success('Salarié mis à jour');
       queryClient.invalidateQueries({ queryKey: ['salaries'] });
@@ -220,14 +220,16 @@ export const SalariesPage = () => {
     }
   };
 
-  const getFonctionLabel = (id: number) => {
-    const f = fonctions.find((f: any) => f.id === id);
-    return f?.fonction || '-';
+  const getFonctionLabel = (id: string | null | undefined) => {
+    if (!id) return '-';
+    const f = fonctions.find((f: any) => String(f.id) === String(id));
+    return f?.libelle || '-';
   };
 
-  const getStatusLabel = (id: number) => {
-    const s = statuts.find((s: any) => s.id === id);
-    return s?.status || '-';
+  const getStatusLabel = (id: string | null | undefined) => {
+    if (!id) return '-';
+    const s = statuts.find((s: any) => String(s.id) === String(id));
+    return s?.libelle || '-';
   };
 
   const isExpired = (dateSortie: string | null) => {

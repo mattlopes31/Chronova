@@ -11,8 +11,10 @@ import { PointagePage } from '@/pages/PointagePage';
 import { AdminPointagesPage } from '@/pages/AdminPointagesPage';
 import { SalariesPage } from '@/pages/SalariesPage';
 import { ProjetsPage } from '@/pages/ProjetsPage';
+import { ProjetsDetailsPage } from '@/pages/ProjetsDetailsPage';
 import { ClientsPage } from '@/pages/ClientsPage';
 import { MesCongesPage } from '@/pages/MesCongesPage';
+import { CalendrierPage } from '@/pages/CalendrierPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -115,6 +117,16 @@ const App = () => {
           }
         />
         
+        {/* Détails projets - Admin/Manager */}
+        <Route
+          path="/projets-details"
+          element={
+            <ProtectedRoute managerOnly>
+              <ProjetsDetailsPage />
+            </ProtectedRoute>
+          }
+        />
+        
         {/* Gestion Salariés - Admin only */}
         <Route
           path="/salaries"
@@ -150,6 +162,15 @@ const App = () => {
           element={
             <ProtectedRoute noAdmin>
               <MesCongesPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* Calendrier - Admin only */}
+        <Route
+          path="/calendrier"
+          element={
+            <ProtectedRoute adminOnly>
+              <CalendrierPage />
             </ProtectedRoute>
           }
         />

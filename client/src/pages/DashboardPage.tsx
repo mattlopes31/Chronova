@@ -1,10 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   Users,
   FolderKanban,
   Clock,
   CheckCircle,
   AlertTriangle,
+  Check,
+  X,
 } from 'lucide-react';
 import { dashboardApi } from '@/services/api';
 import { Card, Spinner, Badge } from '@/components/ui';
@@ -12,22 +15,24 @@ import { useAuthStore } from '@/stores/authStore';
 
 export const DashboardPage = () => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const isAdmin = user?.role === 'Admin';
+
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['dashboard-stats'],
-    queryFn: dashboardApi.getStats,
+    queryFn: () => dashboardApi.getStats(),
     enabled: isAdmin,
   });
 
   const { data: mesStats } = useQuery({
     queryKey: ['mes-stats'],
-    queryFn: dashboardApi.getMesStats,
+    queryFn: () => dashboardApi.getMesStats(),
   });
 
   const { data: validations = [] } = useQuery({
     queryKey: ['validations-pending'],
-    queryFn: dashboardApi.getValidations,
+    queryFn: () => dashboardApi.getValidations(),
     enabled: isAdmin,
   });
 
@@ -157,42 +162,134 @@ export const DashboardPage = () => {
         </>
       )}
 
-      {/* Validations en attente */}
+      {/* Validations en attente - Version cartes */}
       {isAdmin && validations.length > 0 && (
         <>
           <h2 className="text-lg font-semibold text-gray-900 mt-8">Validations en attente</h2>
-          <Card className="overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Salarié</th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Semaine</th>
-                  <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Total heures</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {validations.map((v: any) => (
-                  <tr key={v.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">
-                        {v.salarie?.prenom} {v.salarie?.nom}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {(() => {
+              // Regrouper par salarié
+              const groupedBySalarie = validations.reduce((acc: any, v: any) => {
+                const salarieId = String(v.salarie_id || v.salarie?.id || '');
+                if (!salarieId) return acc;
+                
+                if (!acc[salarieId]) {
+                  acc[salarieId] = {
+                    salarie: v.salarie,
+                    semaines: [],
+                    totalHeures: 0,
+                  };
+                }
+                
+                // Convertir correctement les heures en nombre
+                const heuresSemaine = Number(v.total_heures_travaillees || v.total_heures || 0);
+                if (isNaN(heuresSemaine)) {
+                  console.warn('Heures invalides pour la semaine:', v);
+                  return acc;
+                }
+                
+                acc[salarieId].semaines.push({
+                  annee: Number(v.annee),
+                  semaine: Number(v.semaine),
+                  heures: heuresSemaine,
+                  heuresSup: Number(v.heures_sup || 0),
+                  heuresDues: Number(v.heures_dues || 0),
+                  heuresRattrapees: Number(v.heures_rattrapees || 0),
+                });
+                acc[salarieId].totalHeures = Number(acc[salarieId].totalHeures) + heuresSemaine;
+                return acc;
+              }, {});
+
+              return Object.values(groupedBySalarie).map((group: any, idx: number) => (
+                <Card key={group.salarie?.id || idx} className="p-5 hover:shadow-lg transition-shadow">
+                  {/* En-tête du salarié */}
+                  <div className="flex items-start justify-between mb-4 pb-4 border-b border-gray-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                        <span className="text-base font-semibold text-primary-700">
+                          {group.salarie?.prenom?.[0]}{group.salarie?.nom?.[0]}
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      S{v.semaine} - {v.annee}
-                    </td>
-                    <td className="px-6 py-4 text-center font-semibold">
-                      {v.total_heures_travaillees}h
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <Badge variant="warning">En attente</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+                      <div>
+                        <p className="font-semibold text-gray-900 text-lg">
+                          {group.salarie?.prenom} {group.salarie?.nom}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {group.semaines.length} semaine{group.semaines.length > 1 ? 's' : ''} en attente
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-gray-900">
+                        {Math.round(group.totalHeures)}h
+                      </div>
+                      <div className="text-xs text-gray-500">Total</div>
+                    </div>
+                  </div>
+
+                  {/* Liste des semaines */}
+                  <div className="space-y-2 mb-4">
+                    {group.semaines.map((sem: any) => (
+                      <div
+                        key={`${sem.annee}-${sem.semaine}`}
+                        className="p-3 rounded-lg bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-blue-200 flex items-center justify-center">
+                              <span className="text-xs font-bold text-blue-900">
+                                S{sem.semaine}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">
+                                Semaine {sem.semaine} - {sem.annee}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-semibold text-blue-700">
+                              {sem.heures.toFixed(1)}h
+                            </span>
+                          </div>
+                        </div>
+                        <div className="ml-12 space-y-0.5">
+                          <p className="text-xs text-gray-600">
+                            Total: <span className="font-semibold text-gray-900">{sem.heures.toFixed(1)}h</span>
+                          </p>
+                          {sem.heuresSup !== undefined && sem.heuresSup > 0 && (
+                            <p className="text-xs text-green-600">
+                              Heures sup: <span className="font-semibold">{sem.heuresSup.toFixed(1)}h</span>
+                            </p>
+                          )}
+                          {sem.heuresDues !== undefined && sem.heuresDues > 0 && (
+                            <p className="text-xs text-red-600">
+                              Heures dues: <span className="font-semibold">{sem.heuresDues.toFixed(1)}h</span>
+                            </p>
+                          )}
+                          {sem.heuresRattrapees !== undefined && sem.heuresRattrapees > 0 && (
+                            <p className="text-xs text-blue-600">
+                              Heures rattrapées: <span className="font-semibold">{sem.heuresRattrapees.toFixed(1)}h</span>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Lien vers la page Validations */}
+                  <div className="flex items-center justify-center pt-3 border-t border-gray-100">
+                    <button
+                      onClick={() => navigate('/validations')}
+                      className="text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors"
+                    >
+                      Voir les détails →
+                    </button>
+                  </div>
+                </Card>
+              ));
+            })()}
+          </div>
         </>
       )}
 

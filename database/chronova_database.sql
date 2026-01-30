@@ -136,6 +136,33 @@ CREATE TABLE salarie_fonction (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Migration: Ajouter la colonne heures_dues à validation_semaine
+-- Cette colonne stocke les heures dues (maladie) de chaque semaine pour permettre l'accumulation
+
+-- Ajouter la colonne heures_dues si elle n'existe pas
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'validation_semaine' AND column_name = 'heures_dues'
+    ) THEN
+        ALTER TABLE validation_semaine 
+        ADD COLUMN heures_dues DECIMAL(5, 2) DEFAULT 0;
+    END IF;
+END $$;
+
+-- Mettre à jour les valeurs existantes à 0 si NULL
+UPDATE validation_semaine SET heures_dues = 0 WHERE heures_dues IS NULL;
+
+-- Vérification
+SELECT 
+    column_name, 
+    data_type, 
+    column_default 
+FROM information_schema.columns 
+WHERE table_name = 'validation_semaine' 
+ORDER BY ordinal_position;
+
 -- =====================================================
 -- TABLE: salarie_status
 -- =====================================================
@@ -211,10 +238,12 @@ CREATE INDEX idx_tache_type_default ON tache_type(is_default);
 CREATE TABLE tache_projet (
     id BIGSERIAL PRIMARY KEY,
     projet_id BIGINT NOT NULL REFERENCES projet(id) ON DELETE CASCADE,
-    tache_type_id BIGINT NOT NULL REFERENCES tache_type(id) ON DELETE CASCADE,
+    tache_type_id BIGINT REFERENCES tache_type(id) ON DELETE CASCADE, -- Nullable pour permettre des tâches sans type global
+    nom_tache VARCHAR(250), -- Nom personnalisé de la tâche pour ce projet (indépendant des autres projets)
     heures_prevues INTEGER DEFAULT 0, -- Heures budgétées pour cette tâche sur ce projet
     taux_horaire DECIMAL(10,2) DEFAULT 50.00, -- Taux horaire pour facturation
     description TEXT,
+    couleur VARCHAR(7) DEFAULT '#10B981', -- Couleur pour l'affichage
     actif BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -223,6 +252,7 @@ CREATE TABLE tache_projet (
 
 CREATE INDEX idx_tache_projet_projet ON tache_projet(projet_id);
 CREATE INDEX idx_tache_projet_tache ON tache_projet(tache_type_id);
+CREATE INDEX idx_tache_projet_nom_tache ON tache_projet(nom_tache);
 
 -- =====================================================
 -- TABLE: tache_projet_salarie (affectation salariés aux tâches projet)
@@ -230,7 +260,7 @@ CREATE INDEX idx_tache_projet_tache ON tache_projet(tache_type_id);
 CREATE TABLE tache_projet_salarie (
     id BIGSERIAL PRIMARY KEY,
     projet_id BIGINT NOT NULL REFERENCES projet(id) ON DELETE CASCADE,
-    tache_type_id BIGINT NOT NULL REFERENCES tache_type(id) ON DELETE CASCADE,
+    tache_type_id BIGINT REFERENCES tache_type(id) ON DELETE CASCADE, -- Nullable pour supporter les tâches personnalisées
     tache_projet_id BIGINT NOT NULL REFERENCES tache_projet(id) ON DELETE CASCADE,
     salarie_id BIGINT NOT NULL REFERENCES salarie(id) ON DELETE CASCADE,
     date_affectation DATE DEFAULT CURRENT_DATE,

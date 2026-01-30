@@ -116,20 +116,40 @@ export const projetsApi = {
     const res = await api.post<Projet>('/projets', data);
     return res.data;
   },
-  update: async (id: number, data: Partial<Projet>) => {
+  update: async (id: string, data: Partial<Projet>) => {
     const res = await api.put<Projet>(`/projets/${id}`, data);
     return res.data;
   },
-  delete: async (id: number) => {
+  delete: async (id: string) => {
     const res = await api.delete(`/projets/${id}`);
     return res.data;
   },
-  addTache: async (projetId: number, data: { tache_type_id?: number; type_tache?: string; budget_heures?: number }) => {
+  archive: async (id: string, archive: boolean) => {
+    const res = await api.patch(`/projets/${id}/archive`, { archive });
+    return res.data;
+  },
+  addTache: async (projetId: string, data: { tache_type_id?: string; type_tache?: string; budget_heures?: number }) => {
     const res = await api.post(`/projets/${projetId}/taches`, data);
     return res.data;
   },
-  addAffectation: async (projetId: number, data: { tache_projet_id: number; salarie_id: number; tache_type_id?: number }) => {
+  updateTache: async (projetId: string, tacheId: string, data: { heures_prevues?: number; taux_horaire?: number; description?: string }) => {
+    const res = await api.put(`/projets/${projetId}/taches/${tacheId}`, data);
+    return res.data;
+  },
+  deleteTache: async (projetId: string, tacheId: string) => {
+    const res = await api.delete(`/projets/${projetId}/taches/${tacheId}`);
+    return res.data;
+  },
+  deleteAffectation: async (projetId: string, affectationId: string) => {
+    const res = await api.delete(`/projets/${projetId}/affectations/${affectationId}`);
+    return res.data;
+  },
+  addAffectation: async (projetId: string, data: { tache_projet_id: string; salarie_id: string; tache_type_id?: string }) => {
     const res = await api.post(`/projets/${projetId}/affectations`, data);
+    return res.data;
+  },
+  getDetails: async () => {
+    const res = await api.get('/projets/details');
     return res.data;
   },
 };
@@ -140,7 +160,7 @@ export const clientsApi = {
     const res = await api.get<Client[]>('/clients', { params });
     return res.data;
   },
-  getById: async (id: number) => {
+  getById: async (id: string) => {
     const res = await api.get<Client>(`/clients/${id}`);
     return res.data;
   },
@@ -148,11 +168,11 @@ export const clientsApi = {
     const res = await api.post<Client>('/clients', data);
     return res.data;
   },
-  update: async (id: number, data: Partial<Client>) => {
+  update: async (id: string, data: Partial<Client>) => {
     const res = await api.put<Client>(`/clients/${id}`, data);
     return res.data;
   },
-  delete: async (id: number) => {
+  delete: async (id: string) => {
     const res = await api.delete(`/clients/${id}`);
     return res.data;
   },
@@ -180,7 +200,7 @@ export const tachesApi = {
     const res = await api.put<TacheType>(`/taches/${id}`, data);
     return res.data;
   },
-  delete: async (id: number) => {
+  delete: async (id: string) => {
     const res = await api.delete(`/taches/${id}`);
     return res.data;
   },
@@ -203,6 +223,7 @@ export const pointagesApi = {
   },
   create: async (data: {
     projet_id: string;
+    tache_type_id: string;
     tache_projet_id?: string;
     annee: number;
     semaine: number;

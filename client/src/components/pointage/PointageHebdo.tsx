@@ -83,6 +83,15 @@ export const PointageHebdo = () => {
     vendredi: { actif: false, type: 'CP' },
   });
   
+  // État des déplacements (séparé des absences)
+  const [deplacements, setDeplacements] = useState<Record<typeof JOURS_OUVRABLES[number], boolean>>({
+    lundi: false,
+    mardi: false,
+    mercredi: false,
+    jeudi: false,
+    vendredi: false,
+  });
+  
   // Modal ajout projet
   const [showAddProjet, setShowAddProjet] = useState(false);
   const [selectedProjetId, setSelectedProjetId] = useState('');
@@ -103,6 +112,9 @@ export const PointageHebdo = () => {
   const { data: mesProjets = [], isLoading: projetsLoading } = useQuery({
     queryKey: ['mes-projets', user?.id],
     queryFn: () => projetsApi.getMesProjets(),
+    refetchInterval: 60000, // Rafraîchir toutes les 1 minute (60000 ms)
+    staleTime: 0, // Considérer les données comme obsolètes immédiatement
+    refetchOnWindowFocus: true, // Rafraîchir quand la fenêtre reprend le focus
   });
 
   // Liste des projets assignés avec leurs tâches
@@ -118,6 +130,7 @@ export const PointageHebdo = () => {
   const { data: semaineData, isLoading: semaineLoading, refetch } = useQuery({
     queryKey: ['pointage-semaine', annee, semaine],
     queryFn: () => pointagesApi.getSemaine(annee, semaine),
+    refetchInterval: 60000, // Rafraîchir toutes les 1 minute (60000 ms)
   });
 
   const { data: joursFeries = [] } = useQuery({
@@ -134,6 +147,13 @@ export const PointageHebdo = () => {
       console.log('Pointages reçus:', semaineData.pointages);
       
       const lignesExistantes: PointageLigne[] = semaineData.pointages.map((p: any) => {
+        // Fonction helper pour convertir en nombre
+        const toNumber = (val: any): number => {
+          if (val === null || val === undefined || val === '') return 0;
+          const num = Number(val);
+          return isNaN(num) ? 0 : num;
+        };
+
         const ligne = {
           id: p.id,
           projet_id: p.projet_id?.toString(),
@@ -142,17 +162,17 @@ export const PointageHebdo = () => {
           tache_type_id: p.tache_type_id?.toString() || p.tache_type?.id?.toString(),
           tache_type: p.tache_type,
           heures: {
-            lundi: Number(p.heure_lundi) || 0,
-            mardi: Number(p.heure_mardi) || 0,
-            mercredi: Number(p.heure_mercredi) || 0,
-            jeudi: Number(p.heure_jeudi) || 0,
-            vendredi: Number(p.heure_vendredi) || 0,
-            samedi: Number(p.heure_samedi) || 0,
-            dimanche: Number(p.heure_dimanche) || 0,
+            lundi: toNumber(p.heure_lundi),
+            mardi: toNumber(p.heure_mardi),
+            mercredi: toNumber(p.heure_mercredi),
+            jeudi: toNumber(p.heure_jeudi),
+            vendredi: toNumber(p.heure_vendredi),
+            samedi: toNumber(p.heure_samedi),
+            dimanche: toNumber(p.heure_dimanche),
           },
           commentaire: p.commentaire,
         };
-        console.log('Ligne créée:', ligne);
+        console.log('Ligne créée depuis serveur:', ligne);
         return ligne;
       });
       setLignes(lignesExistantes);
@@ -162,13 +182,40 @@ export const PointageHebdo = () => {
 
     if (semaineData?.conges) {
       const typeConge = semaineData.conges.type_conge || 'CP';
-      setConges({
-        lundi: { actif: semaineData.conges.cp_lundi || false, type: semaineData.conges.type_lundi || typeConge },
-        mardi: { actif: semaineData.conges.cp_mardi || false, type: semaineData.conges.type_mardi || typeConge },
-        mercredi: { actif: semaineData.conges.cp_mercredi || false, type: semaineData.conges.type_mercredi || typeConge },
-        jeudi: { actif: semaineData.conges.cp_jeudi || false, type: semaineData.conges.type_jeudi || typeConge },
-        vendredi: { actif: semaineData.conges.cp_vendredi || false, type: semaineData.conges.type_vendredi || typeConge },
+      
+      // Séparer les déplacements des autres absences
+      const nouveauxConges: CongesState = {
+        lundi: { actif: false, type: 'CP' },
+        mardi: { actif: false, type: 'CP' },
+        mercredi: { actif: false, type: 'CP' },
+        jeudi: { actif: false, type: 'CP' },
+        vendredi: { actif: false, type: 'CP' },
+      };
+      
+      const nouveauxDeplacements = {
+        lundi: false,
+        mardi: false,
+        mercredi: false,
+        jeudi: false,
+        vendredi: false,
+      };
+      
+      // Pour chaque jour, vérifier si c'est un déplacement ou une autre absence
+      JOURS_OUVRABLES.forEach((jour) => {
+        const cpKey = `cp_${jour}` as keyof typeof semaineData.conges;
+        const typeKey = `type_${jour}` as keyof typeof semaineData.conges;
+        const isActif = semaineData.conges[cpKey] || false;
+        const type = (semaineData.conges[typeKey] || typeConge) as CongeType;
+        
+        if (isActif && type === 'Deplacement') {
+          nouveauxDeplacements[jour] = true;
+        } else if (isActif) {
+          nouveauxConges[jour] = { actif: true, type: type };
+        }
       });
+      
+      setConges(nouveauxConges);
+      setDeplacements(nouveauxDeplacements);
     } else {
       setConges({
         lundi: { actif: false, type: 'CP' },
@@ -177,64 +224,95 @@ export const PointageHebdo = () => {
         jeudi: { actif: false, type: 'CP' },
         vendredi: { actif: false, type: 'CP' },
       });
+      setDeplacements({
+        lundi: false,
+        mardi: false,
+        mercredi: false,
+        jeudi: false,
+        vendredi: false,
+      });
     }
   }, [semaineData]);
 
   // Mutations
   const saveMutation = useMutation({
     mutationFn: async () => {
+      console.log('=== Début sauvegarde ===');
+      console.log('Lignes à sauvegarder:', JSON.stringify(lignes, null, 2));
+      
       // Sauvegarder chaque ligne de pointage
       for (const ligne of lignes) {
         if (ligne.projet_id && ligne.tache_type_id) {
+          // Fonction helper pour convertir en nombre, en gérant 0 correctement
+          const toNumber = (val: any): number => {
+            if (val === null || val === undefined || val === '') return 0;
+            const num = Number(val);
+            return isNaN(num) ? 0 : num;
+          };
+
+          const dataToSend = {
+            projet_id: ligne.projet_id,
+            tache_type_id: ligne.tache_type_id,
+            annee,
+            semaine,
+            heure_lundi: toNumber(ligne.heures.lundi),
+            heure_mardi: toNumber(ligne.heures.mardi),
+            heure_mercredi: toNumber(ligne.heures.mercredi),
+            heure_jeudi: toNumber(ligne.heures.jeudi),
+            heure_vendredi: toNumber(ligne.heures.vendredi),
+            heure_samedi: toNumber(ligne.heures.samedi),
+            heure_dimanche: toNumber(ligne.heures.dimanche),
+            commentaire: ligne.commentaire,
+          };
+          
           console.log('Sauvegarde ligne:', {
             projet_id: ligne.projet_id,
             tache_type_id: ligne.tache_type_id,
             annee,
             semaine,
-            heures: ligne.heures
+            heures_brutes: ligne.heures,
+            donnees_envoyees: dataToSend
           });
           
-          await pointagesApi.create({
-            projet_id: ligne.projet_id,
-            tache_type_id: ligne.tache_type_id,
-            annee,
-            semaine,
-            heure_lundi: ligne.heures.lundi || 0,
-            heure_mardi: ligne.heures.mardi || 0,
-            heure_mercredi: ligne.heures.mercredi || 0,
-            heure_jeudi: ligne.heures.jeudi || 0,
-            heure_vendredi: ligne.heures.vendredi || 0,
-            heure_samedi: ligne.heures.samedi || 0,
-            heure_dimanche: ligne.heures.dimanche || 0,
-            commentaire: ligne.commentaire,
-          });
+          await pointagesApi.create(dataToSend);
         } else {
           console.warn('Ligne sans tache_type_id ignorée:', ligne);
         }
       }
-      // Sauvegarder les congés avec les types par jour
+      // Sauvegarder les congés avec les types par jour (incluant les déplacements)
+      // Pour chaque jour, si déplacement actif, c'est un déplacement, sinon c'est le type de congé
+      const getTypeJour = (jour: typeof JOURS_OUVRABLES[number]) => {
+        if (deplacements[jour]) return 'Deplacement';
+        return conges[jour].type;
+      };
+      
+      const getActifJour = (jour: typeof JOURS_OUVRABLES[number]) => {
+        return conges[jour].actif || deplacements[jour];
+      };
+      
       await congesApi.create({
         annee,
         semaine,
-        cp_lundi: conges.lundi.actif,
-        cp_mardi: conges.mardi.actif,
-        cp_mercredi: conges.mercredi.actif,
-        cp_jeudi: conges.jeudi.actif,
-        cp_vendredi: conges.vendredi.actif,
-        type_lundi: conges.lundi.type,
-        type_mardi: conges.mardi.type,
-        type_mercredi: conges.mercredi.type,
-        type_jeudi: conges.jeudi.type,
-        type_vendredi: conges.vendredi.type,
-        type_conge: conges.lundi.actif ? conges.lundi.type :
-                    conges.mardi.actif ? conges.mardi.type :
-                    conges.mercredi.actif ? conges.mercredi.type :
-                    conges.jeudi.actif ? conges.jeudi.type :
-                    conges.vendredi.actif ? conges.vendredi.type : 'CP',
+        cp_lundi: getActifJour('lundi'),
+        cp_mardi: getActifJour('mardi'),
+        cp_mercredi: getActifJour('mercredi'),
+        cp_jeudi: getActifJour('jeudi'),
+        cp_vendredi: getActifJour('vendredi'),
+        type_lundi: getTypeJour('lundi'),
+        type_mardi: getTypeJour('mardi'),
+        type_mercredi: getTypeJour('mercredi'),
+        type_jeudi: getTypeJour('jeudi'),
+        type_vendredi: getTypeJour('vendredi'),
+        type_conge: getActifJour('lundi') ? getTypeJour('lundi') :
+                    getActifJour('mardi') ? getTypeJour('mardi') :
+                    getActifJour('mercredi') ? getTypeJour('mercredi') :
+                    getActifJour('jeudi') ? getTypeJour('jeudi') :
+                    getActifJour('vendredi') ? getTypeJour('vendredi') : 'CP',
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pointage-semaine'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-pointages'] });
       toast.success('Pointage enregistré');
     },
     onError: (error: any) => {
@@ -247,6 +325,7 @@ export const PointageHebdo = () => {
     mutationFn: () => pointagesApi.soumettre(annee, semaine),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pointage-semaine'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-pointages'] });
       toast.success('Pointage soumis pour validation');
     },
     onError: (error: any) => {
@@ -319,7 +398,10 @@ export const PointageHebdo = () => {
 
   const updateHeures = (index: number, jour: typeof JOURS[number], value: number) => {
     const newLignes = [...lignes];
-    newLignes[index].heures[jour] = Math.max(0, Math.min(24, value));
+    const numValue = Number(value);
+    const finalValue = isNaN(numValue) ? 0 : Math.max(0, Math.min(24, numValue));
+    newLignes[index].heures[jour] = finalValue;
+    console.log(`Update heures ligne ${index}, jour ${jour}: ${value} -> ${finalValue}`);
     setLignes(newLignes);
   };
 
@@ -352,6 +434,22 @@ export const PointageHebdo = () => {
     });
   };
 
+  // Toggle déplacement (séparé des absences)
+  const toggleDeplacement = (jour: typeof JOURS_OUVRABLES[number]) => {
+    // Si on active le déplacement, on désactive l'absence pour ce jour
+    if (!deplacements[jour] && conges[jour].actif) {
+      setConges({
+        ...conges,
+        [jour]: { actif: false, type: 'CP' }
+      });
+    }
+    
+    setDeplacements({
+      ...deplacements,
+      [jour]: !deplacements[jour]
+    });
+  };
+
   // Calculs
   const calculs = useMemo(() => {
     // Heures travaillées par jour
@@ -363,7 +461,7 @@ export const PointageHebdo = () => {
     // Total heures travaillées
     const heuresTravaillees = Object.values(heuresParJour).reduce((sum, h) => sum + Number(h), 0);
 
-    // Jours de congé payé (CP et RTT uniquement)
+    // Jours de congé payé (CP et RTT uniquement) - SANS les déplacements
     const joursCP = JOURS_OUVRABLES.filter(j => {
       const jourData = conges[j];
       return jourData.actif && (jourData.type === 'CP' || jourData.type === 'RTT');
@@ -377,21 +475,53 @@ export const PointageHebdo = () => {
     }).length;
     const heuresMaladie = joursMaladie * HEURES_CP_PAR_JOUR;
 
-    // Jours de déplacement (comptés comme travaillés)
-    const joursDeplacement = JOURS_OUVRABLES.filter(j => {
+    // Jours de déplacement (depuis l'état déplacements séparé)
+    // Les heures de déplacement sont maintenant saisies manuellement dans les lignes de pointage
+    // On ne compte plus automatiquement 7h par jour de déplacement
+    const joursDeplacement = JOURS_OUVRABLES.filter(j => deplacements[j]).length;
+    const heuresDeplacement = 0; // Les heures sont saisies manuellement, pas automatiques
+
+    // Jours de formation
+    const joursFormation = JOURS_OUVRABLES.filter(j => {
       const jourData = conges[j];
-      return jourData.actif && jourData.type === 'Deplacement';
+      return jourData.actif && jourData.type === 'Formation';
     }).length;
-    const heuresDeplacement = joursDeplacement * HEURES_CP_PAR_JOUR;
+    const heuresFormation = joursFormation * HEURES_CP_PAR_JOUR;
 
-    // Total semaine = travail + CP + déplacement (maladie = heures dues)
-    const totalSemaine = heuresTravaillees + heuresCP + heuresDeplacement;
+    // Total semaine = travail (incluant les heures de déplacement saisies manuellement) + CP + formation (maladie = heures dues)
+    // Les heures de déplacement sont maintenant incluses dans heuresTravaillees car elles sont saisies dans les lignes de pointage
+    const totalSemaine = heuresTravaillees + heuresCP + heuresFormation;
 
-    // Heures normales, sup, dues
-    // Maladie = heures dues (non travaillées mais justifiées)
-    const heuresNormales = Math.min(totalSemaine, HEURES_SEMAINE_NORMALE);
-    const heuresSup = Math.max(0, totalSemaine - HEURES_SEMAINE_NORMALE);
-    const heuresDues = heuresMaladie; // Les heures maladie sont les heures dues
+    // Récupérer le cumul des heures dues des semaines précédentes
+    // On utilise toujours cumul_heures_dues qui représente le cumul AVANT cette semaine
+    // validation.heures_dues représente le cumul APRÈS cette semaine (si soumise)
+    const cumulHeuresDuesPrecedentes = Number(semaineData?.cumul_heures_dues || 0);
+
+    // Les heures normales de la semaine = 35h + cumul heures dues précédentes
+    // Exemple : si cumul = 5h, alors il faut faire 35h + 5h = 40h cette semaine
+    const heuresNormalesRequises = HEURES_SEMAINE_NORMALE + cumulHeuresDuesPrecedentes;
+
+    // Calculer les heures dues de cette semaine
+    // Si totalSemaine < heures normales requises, les heures manquantes deviennent des heures dues
+    const heuresDuesSemaine = Math.max(0, heuresNormalesRequises - totalSemaine);
+    
+    // Les heures de maladie s'ajoutent aussi aux heures dues
+    const heuresDues = heuresDuesSemaine + heuresMaladie;
+    
+    // Calculer les heures normales
+    const heuresNormales = Math.min(totalSemaine, heuresNormalesRequises);
+    
+    // Calculer combien d'heures en plus on a fait par rapport aux heures normales requises
+    const heuresEnPlus = Math.max(0, totalSemaine - heuresNormalesRequises);
+    
+    // Les heures en plus servent D'ABORD à rattraper les heures dues
+    // Seulement après avoir rattrapé tout le cumul, les heures restantes deviennent des heures sup
+    const heuresRattrapees = Math.min(heuresEnPlus, cumulHeuresDuesPrecedentes);
+    const heuresSup = Math.max(0, heuresEnPlus - heuresRattrapees); // Heures sup seulement après rattrapage
+    
+    // Calculer le nouveau cumul (heures dues de cette semaine + cumul précédent - heures rattrapées)
+    // Le cumul ne peut pas être négatif
+    const nouveauCumulHeuresDues = Math.max(0, cumulHeuresDuesPrecedentes + heuresDues - heuresRattrapees);
 
     return {
       heuresParJour,
@@ -402,12 +532,19 @@ export const PointageHebdo = () => {
       heuresMaladie,
       joursDeplacement,
       heuresDeplacement,
+      joursFormation,
+      heuresFormation,
       totalSemaine,
       heuresNormales,
       heuresSup,
       heuresDues,
+      heuresDuesSemaine,
+      cumulHeuresDuesPrecedentes,
+      nouveauCumulHeuresDues,
+      heuresRattrapees,
+      heuresNormalesRequises,
     };
-  }, [lignes, conges]);
+  }, [lignes, conges, deplacements, semaineData]);
 
   // Status de la semaine
   const validationStatus = semaineData?.validation?.status || 'Brouillon';
@@ -554,7 +691,7 @@ export const PointageHebdo = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {/* Ligne Congés / Absences */}
+              {/* Ligne Absences (CP, Maladie, Formation, Sans solde) */}
               <tr className="bg-gradient-to-r from-amber-50/50 to-blue-50/50">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -564,7 +701,6 @@ export const PointageHebdo = () => {
                   <div className="flex flex-wrap gap-1 mt-1 text-xs">
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">CP</span>
                     <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded">Maladie</span>
-                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded">Déplacement</span>
                     <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded">Formation</span>
                     <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded">Sans solde</span>
                   </div>
@@ -574,15 +710,14 @@ export const PointageHebdo = () => {
                   const jourData = isOuvrable ? conges[jour as keyof CongesState] : null;
                   const isChecked = jourData?.actif || false;
                   const typeConge = jourData?.type || 'CP';
+                  const isDeplacement = isOuvrable && deplacements[jour as keyof typeof deplacements];
                   
                   // Couleur selon le type
                   const getTypeColor = (type: string) => {
                     switch(type) {
                       case 'Maladie': return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300', checkbox: 'text-blue-600 focus:ring-blue-500' };
-                      case 'Deplacement': return { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300', checkbox: 'text-purple-600 focus:ring-purple-500' };
                       case 'Formation': return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', checkbox: 'text-green-600 focus:ring-green-500' };
                       case 'Sans_solde': return { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-300', checkbox: 'text-gray-600 focus:ring-gray-500' };
-                      case 'RTT': return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300', checkbox: 'text-orange-600 focus:ring-orange-500' };
                       default: return { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300', checkbox: 'text-amber-600 focus:ring-amber-500' };
                     }
                   };
@@ -596,7 +731,13 @@ export const PointageHebdo = () => {
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              onChange={() => toggleConge(jour as typeof JOURS_OUVRABLES[number], typeConge)}
+                              onChange={() => {
+                                // Si déplacement actif, on le désactive
+                                if (isDeplacement) {
+                                  setDeplacements({ ...deplacements, [jour]: false });
+                                }
+                                toggleConge(jour as typeof JOURS_OUVRABLES[number], typeConge);
+                              }}
                               disabled={isLocked}
                               className={clsx(
                                 'w-5 h-5 rounded focus:ring-2',
@@ -618,7 +759,6 @@ export const PointageHebdo = () => {
                             >
                               <option value="CP">CP</option>
                               <option value="Maladie">Maladie</option>
-                              <option value="Deplacement">Déplacement</option>
                               <option value="Formation">Formation</option>
                               <option value="Sans_solde">Sans solde</option>
                             </select>
@@ -638,13 +778,75 @@ export const PointageHebdo = () => {
                     {calculs.heuresMaladie > 0 && (
                       <span className="text-blue-700 font-semibold text-xs">{calculs.heuresMaladie}h Mal.</span>
                     )}
-                    {calculs.heuresDeplacement > 0 && (
-                      <span className="text-purple-700 font-semibold text-xs">{calculs.heuresDeplacement}h Dépl.</span>
+                    {calculs.heuresFormation > 0 && (
+                      <span className="text-green-700 font-semibold text-xs">{calculs.heuresFormation}h Form.</span>
                     )}
-                    {calculs.heuresCP === 0 && calculs.heuresMaladie === 0 && calculs.heuresDeplacement === 0 && (
+                    {calculs.heuresCP === 0 && calculs.heuresMaladie === 0 && calculs.heuresFormation === 0 && (
                       <span className="text-gray-400">0h</span>
                     )}
                   </div>
+                </td>
+                <td></td>
+              </tr>
+
+              {/* Ligne Déplacements (séparée) */}
+              <tr className="bg-gradient-to-r from-purple-50/50 to-violet-50/50">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-purple-600" />
+                    <span className="font-medium text-gray-700">Déplacements</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1 text-xs">
+                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded">Journée en déplacement</span>
+                  </div>
+                </td>
+                {JOURS.map((jour) => {
+                  const isOuvrable = JOURS_OUVRABLES.includes(jour as any);
+                  const isChecked = isOuvrable && deplacements[jour as keyof typeof deplacements];
+                  const hasAbsence = isOuvrable && conges[jour as keyof CongesState]?.actif;
+                  
+                  return (
+                    <td key={jour} className="px-2 py-3 text-center">
+                      {isOuvrable ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <label className="flex items-center justify-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                // Si absence active, on la désactive
+                                if (hasAbsence) {
+                                  setConges({ ...conges, [jour]: { actif: false, type: 'CP' } });
+                                }
+                                toggleDeplacement(jour as typeof JOURS_OUVRABLES[number]);
+                              }}
+                              disabled={isLocked}
+                              className="w-5 h-5 rounded focus:ring-2 border-purple-300 text-purple-600 focus:ring-purple-500"
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td className="px-4 py-3 text-center">
+                  {/* Les heures de déplacement sont maintenant saisies manuellement dans les lignes de pointage */}
+                  {/* On affiche le total des heures pointées pour les jours en déplacement */}
+                  {(() => {
+                    const heuresDeplacementManuelles = JOURS_OUVRABLES.reduce((sum, jour) => {
+                      if (deplacements[jour]) {
+                        return sum + (calculs.heuresParJour[jour] || 0);
+                      }
+                      return sum;
+                    }, 0);
+                    return heuresDeplacementManuelles > 0 ? (
+                      <span className="text-purple-700 font-semibold text-xs">{heuresDeplacementManuelles.toFixed(1)}h</span>
+                    ) : (
+                      <span className="text-gray-400">0h</span>
+                    );
+                  })()}
                 </td>
                 <td></td>
               </tr>
@@ -678,26 +880,39 @@ export const PointageHebdo = () => {
                       : null;
                     const isAbsent = jourData?.actif || false;
                     const absenceType = jourData?.type;
+                    const isDeplacement = JOURS_OUVRABLES.includes(jour as any) && deplacements[jour as keyof typeof deplacements];
                     const jourFerie = joursFeries.find((jf: JourFerie) => 
                       formatDate(jf.date, 'yyyy-MM-dd') === formatDate(joursSemaine[jourIndex], 'yyyy-MM-dd')
                     );
                     
                     // Déplacement permet de pointer (on est en déplacement mais on travaille)
-                    const cannotEdit = isAbsent && absenceType !== 'Deplacement';
+                    // Absence (CP, Maladie, etc.) ne permet pas de pointer
+                    const cannotEdit = isAbsent;
                     
                     return (
                       <td key={jour} className={clsx(
                         'px-2 py-3 text-center',
                         isWeekend && 'bg-gray-50',
                         isAbsent && absenceType === 'Maladie' && 'bg-blue-50',
-                        isAbsent && absenceType === 'Deplacement' && 'bg-purple-50',
-                        isAbsent && absenceType !== 'Maladie' && absenceType !== 'Deplacement' && 'bg-amber-50',
+                        isDeplacement && 'bg-purple-50',
+                        isAbsent && absenceType !== 'Maladie' && 'bg-amber-50',
                         jourFerie && 'bg-red-50'
                       )}>
                         <input
                           type="number"
-                          value={ligne.heures[jour] || ''}
-                          onChange={(e) => updateHeures(index, jour, parseFloat(e.target.value) || 0)}
+                          value={ligne.heures[jour] === 0 ? '' : (ligne.heures[jour] || '')}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const numVal = val === '' ? 0 : parseFloat(val);
+                            updateHeures(index, jour, isNaN(numVal) ? 0 : numVal);
+                          }}
+                          onBlur={(e) => {
+                            // S'assurer que la valeur est bien un nombre
+                            const val = e.target.value;
+                            if (val === '' || isNaN(parseFloat(val))) {
+                              updateHeures(index, jour, 0);
+                            }
+                          }}
                           disabled={isLocked || cannotEdit || !!jourFerie}
                           min="0"
                           max="24"
@@ -798,13 +1013,36 @@ export const PointageHebdo = () => {
             +{calculs.heuresSup}h
           </div>
         </Card>
-        <Card className={clsx('p-4', calculs.heuresDues > 0 && 'bg-red-50 border-red-200')}>
+        <Card className={clsx('p-4', calculs.nouveauCumulHeuresDues > 0 && 'bg-red-50 border-red-200')}>
           <div className="text-sm text-gray-500">Heures dues</div>
-          <div className={clsx(
-            'text-2xl font-bold',
-            calculs.heuresDues > 0 ? 'text-red-600' : 'text-gray-400'
-          )}>
-            {calculs.heuresDues > 0 ? `-${calculs.heuresDues}h` : '0h'}
+          <div className="flex flex-col">
+            <div className={clsx(
+              'text-2xl font-bold',
+              calculs.heuresDuesSemaine > 0 ? 'text-red-600' : 'text-gray-400'
+            )}>
+              {calculs.heuresDuesSemaine > 0 ? `-${calculs.heuresDuesSemaine.toFixed(1)}h` : '0h'}
+              <span className="text-xs text-gray-500 font-normal ml-1">(semaine)</span>
+            </div>
+            {calculs.cumulHeuresDuesPrecedentes > 0 && (
+              <div className="text-xs mt-1 text-orange-600">
+                Objectif cette semaine : {calculs.heuresNormalesRequises.toFixed(1)}h (35h + {calculs.cumulHeuresDuesPrecedentes.toFixed(1)}h à rattraper)
+              </div>
+            )}
+            {(calculs.nouveauCumulHeuresDues > 0 || (semaineData?.validation?.heures_dues && Number(semaineData.validation.heures_dues) > 0)) && (
+              <div className="text-sm mt-1">
+                <span className="text-gray-500">Cumul total : </span>
+                <span className="font-semibold text-red-600">
+                  -{(semaineData?.validation?.status === 'Soumis' || semaineData?.validation?.status === 'Valide'
+                    ? Number(semaineData.validation.heures_dues).toFixed(1)
+                    : calculs.nouveauCumulHeuresDues.toFixed(1))}h
+                </span>
+              </div>
+            )}
+            {calculs.heuresRattrapees > 0 && (
+              <div className="text-xs mt-1 text-green-600">
+                ✓ {calculs.heuresRattrapees.toFixed(1)}h rattrapées cette semaine
+              </div>
+            )}
           </div>
         </Card>
       </div>

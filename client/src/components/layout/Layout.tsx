@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard,
   Clock,
@@ -8,6 +9,7 @@ import {
   Users,
   Building2,
   CalendarOff,
+  Calendar,
   Settings,
   LogOut,
   Menu,
@@ -17,6 +19,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { dashboardApi } from '@/services/api';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -25,9 +28,34 @@ interface LayoutProps {
 export const Layout = ({ children }: LayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const queryClient = useQueryClient();
+
+  // Récupérer les notifications (avec rafraîchissement automatique)
+  const { data: notifications = [], isLoading: notificationsLoading } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => dashboardApi.getNotifications(),
+    refetchInterval: 30000, // Rafraîchir toutes les 30 secondes
+    refetchOnWindowFocus: true, // Rafraîchir quand on revient sur la fenêtre
+  });
+
+  const unreadCount = notifications.filter((n: any) => !n.lu).length;
+  
+  // Debug: afficher les notifications dans la console
+  if (notifications.length > 0) {
+    console.log('Notifications reçues:', notifications);
+  }
+
+  // Marquer une notification comme lue
+  const markAsReadMutation = useMutation({
+    mutationFn: (id: string) => dashboardApi.marquerNotificationLue(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
 
   const isAdmin = user?.role === 'Admin';
   const isManager = user?.role === 'Manager' || isAdmin;
@@ -47,8 +75,10 @@ export const Layout = ({ children }: LayoutProps) => {
   const adminNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Validations', href: '/validations', icon: CheckCircle },
+    { name: 'Détails projets', href: '/projets-details', icon: FolderKanban },
     { name: 'Salariés', href: '/salaries', icon: Users },
     { name: 'Projets', href: '/projets', icon: FolderKanban },
+    { name: 'Calendrier', href: '/calendrier', icon: Calendar },
     { name: 'Clients', href: '/clients', icon: Building2 },
     { name: 'Congés', href: '/conges', icon: CalendarOff },
   ];
@@ -178,10 +208,95 @@ export const Layout = ({ children }: LayoutProps) => {
             <div className="flex-1 lg:flex-none" />
 
             <div className="flex items-center gap-4">
-              <button className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
+              {/* Notifications */}
+              <div className="relative">
+                <button 
+                  onClick={() => setNotificationsOpen(!notificationsOpen)}
+                  className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                  )}
+                </button>
+                
+                {/* Dropdown notifications */}
+                {notificationsOpen && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setNotificationsOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
+                      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                        <h3 className="font-semibold text-gray-900">Notifications</h3>
+                        {unreadCount > 0 && (
+                          <span className="text-xs text-gray-500">{unreadCount} non lue{unreadCount > 1 ? 's' : ''}</span>
+                        )}
+                      </div>
+                      <div className="overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                            Aucune notification
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-gray-100">
+                            {notifications.map((notification: any) => (
+                              <div
+                                key={notification.id}
+                                className={clsx(
+                                  'px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors',
+                                  !notification.lu && 'bg-blue-50/50'
+                                )}
+                                onClick={() => {
+                                  if (!notification.lu) {
+                                    markAsReadMutation.mutate(notification.id.toString());
+                                  }
+                                  if (notification.lien) {
+                                    navigate(notification.lien);
+                                    setNotificationsOpen(false);
+                                  }
+                                }}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className={clsx(
+                                    'w-2 h-2 rounded-full mt-2 flex-shrink-0',
+                                    notification.type === 'success' && 'bg-green-500',
+                                    notification.type === 'warning' && 'bg-yellow-500',
+                                    notification.type === 'error' && 'bg-red-500',
+                                    notification.type === 'info' && 'bg-blue-500',
+                                    notification.lu && 'opacity-30'
+                                  )} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className={clsx(
+                                      'text-sm font-medium',
+                                      !notification.lu ? 'text-gray-900' : 'text-gray-600'
+                                    )}>
+                                      {notification.titre}
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                                      {notification.message}
+                                    </p>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                      {new Date(notification.created_at).toLocaleDateString('fr-FR', {
+                                        day: 'numeric',
+                                        month: 'short',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              
               <span className="hidden sm:block text-sm text-gray-500">
                 {new Date().toLocaleDateString('fr-FR', {
                   weekday: 'long',

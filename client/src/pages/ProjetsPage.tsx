@@ -56,6 +56,38 @@ const initialForm: ProjetForm = {
   actif: true,
 };
 
+// Fonction de tri pour les tâches par code (numériques en ordre croissant, puis alphabétiques)
+const sortTachesByCode = (a: any, b: any) => {
+  const codeA = (a.code || a.tache_type?.code || '').trim();
+  const codeB = (b.code || b.tache_type?.code || '').trim();
+  
+  // Si aucun code, utiliser le nom
+  if (!codeA && !codeB) {
+    const nomA = (a.nom_tache || a.tache_type?.tache_type || a.nom || '').toLowerCase();
+    const nomB = (b.nom_tache || b.tache_type?.tache_type || b.nom || '').toLowerCase();
+    return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
+  }
+  
+  if (!codeA) return 1; // Les tâches sans code à la fin
+  if (!codeB) return -1;
+  
+  // Vérifier si les codes sont numériques
+  const isNumericA = /^\d+$/.test(codeA);
+  const isNumericB = /^\d+$/.test(codeB);
+  
+  // Si les deux sont numériques, trier par ordre croissant
+  if (isNumericA && isNumericB) {
+    return parseInt(codeA, 10) - parseInt(codeB, 10);
+  }
+  
+  // Si un seul est numérique, les numériques viennent en premier
+  if (isNumericA && !isNumericB) return -1;
+  if (!isNumericA && isNumericB) return 1;
+  
+  // Si les deux sont alphabétiques, trier par ordre alphabétique
+  return codeA.localeCompare(codeB, 'fr', { sensitivity: 'base', numeric: true });
+};
+
 export const ProjetsPage = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -73,11 +105,12 @@ export const ProjetsPage = () => {
   const [tachesProjet, setTachesProjet] = useState<any[]>([]); // Liste des tâches créées pour ce projet
   const [assignSalarie, setAssignSalarie] = useState<string>('');
   const [assignTache, setAssignTache] = useState<string>('');
-  const [newTache, setNewTache] = useState({ nom: '', heures_prevues: 0, couleur: '#10B981' });
+  const [newTache, setNewTache] = useState({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
   const [editingTache, setEditingTache] = useState<{ projetId: number; tacheId: string } | null>(null);
   const [tacheHeures, setTacheHeures] = useState<string>('');
   const [tachesHeuresModal, setTachesHeuresModal] = useState<Record<string, number>>({}); // tache_type_id -> heures_prevues
   const [tachesNomsModal, setTachesNomsModal] = useState<Record<string, string>>({}); // tache_type_id -> nouveau nom
+  const [tachesCodesModal, setTachesCodesModal] = useState<Record<string, string>>({}); // tache_projet_id -> code
   const [tachesCouleursModal, setTachesCouleursModal] = useState<Record<string, string>>({}); // tache_projet_id -> couleur
 
   // Queries
@@ -291,19 +324,29 @@ export const ProjetsPage = () => {
     },
   });
 
-  // Initialiser les couleurs dans tachesCouleursModal lorsque le modal d'édition s'ouvre
+  // Initialiser les couleurs et codes dans tachesCouleursModal et tachesCodesModal lorsque le modal d'édition s'ouvre
   useEffect(() => {
     if (isEditHeuresModalOpen && selectedTaches.length > 0 && tachesProjet.length > 0) {
       const nouvellesCouleurs: Record<string, string> = {};
+      const nouveauxCodes: Record<string, string> = {};
       selectedTaches.forEach((tacheId) => {
         const tache = tachesProjet.find((t: any) => t.id === tacheId);
-        if (tache && !tachesCouleursModal[tacheId]) {
+        if (tache) {
           // Initialiser avec la couleur de la tâche si elle n'est pas déjà dans le modal
-          nouvellesCouleurs[tacheId] = tache.couleur || '#10B981';
+          if (!tachesCouleursModal[tacheId]) {
+            nouvellesCouleurs[tacheId] = tache.couleur || '#10B981';
+          }
+          // Initialiser avec le code de la tâche si elle n'est pas déjà dans le modal
+          if (tachesCodesModal[tacheId] === undefined && tache.code !== undefined) {
+            nouveauxCodes[tacheId] = tache.code || '';
+          }
         }
       });
       if (Object.keys(nouvellesCouleurs).length > 0) {
         setTachesCouleursModal(prev => ({ ...prev, ...nouvellesCouleurs }));
+      }
+      if (Object.keys(nouveauxCodes).length > 0) {
+        setTachesCodesModal(prev => ({ ...prev, ...nouveauxCodes }));
       }
     }
   }, [isEditHeuresModalOpen, selectedTaches, tachesProjet]);
@@ -336,6 +379,7 @@ export const ProjetsPage = () => {
     setTachesHeuresModal({});
     setTachesNomsModal({});
     setTachesCouleursModal({});
+    setTachesCodesModal({});
     setIsModalOpen(true);
   };
 
@@ -363,7 +407,7 @@ export const ProjetsPage = () => {
     const tachesProjetData = projet.taches?.map((t: any) => ({
       id: String(t.id),
       nom_tache: t.nom_tache || t.tache_type?.tache_type || 'Tâche sans nom',
-      code: t.code || t.tache_type?.code || null, // Code de la tâche
+      code: t.code || t.tache_type?.code || '', // Code de la tâche
       heures_prevues: Number(t.heures_prevues || 0),
       couleur: t.couleur || t.tache_type?.couleur || '#10B981',
       tache_type_id: t.tache_type_id ? String(t.tache_type_id) : null, // Garder la référence pour savoir si c'est une tâche personnalisée
@@ -377,16 +421,19 @@ export const ProjetsPage = () => {
     
     const heuresMap: Record<string, number> = {};
     const couleursMap: Record<string, string> = {};
+    const codesMap: Record<string, string> = {};
     tachesProjetData.forEach((t: any) => {
       heuresMap[t.id] = t.heures_prevues;
       // S'assurer qu'une couleur est toujours définie : utiliser celle de la tâche (qui vient de tache_projet.couleur ou tache_type.couleur)
       // Cette couleur sera utilisée dans le modal d'édition
       const couleurTache = t.couleur || '#10B981';
       couleursMap[t.id] = couleurTache;
+      codesMap[t.id] = t.code || '';
       console.log(`Initialisation couleur pour tâche ${t.id} (${t.nom_tache}): ${couleurTache}`);
     });
     setTachesHeuresModal(heuresMap);
     setTachesCouleursModal(couleursMap);
+    setTachesCodesModal(codesMap);
     
     setIsModalOpen(true);
   };
@@ -462,6 +509,7 @@ export const ProjetsPage = () => {
         // Nouvelle tâche créée dans le projet (sans tache_type_id)
         return {
           nom_tache: tacheProjet.nom_tache || tacheProjet.nom,
+          code: tachesCodesModal[tid] || tacheProjet.code || '',
           heures_prevues: tachesHeuresModal[tid] || tacheProjet.heures_prevues || 0,
           couleur: tacheProjet.couleur || '#10B981',
         };
@@ -478,6 +526,14 @@ export const ProjetsPage = () => {
           nom_tache: tachesNomsModal[tid] || tacheProjet.nom_tache,
         };
         
+        // Inclure le code s'il a été modifié (même si c'est une chaîne vide)
+        if (tachesCodesModal[tid] !== undefined) {
+          tacheData.code = tachesCodesModal[tid];
+        } else if (tacheProjet.code !== undefined && tacheProjet.code !== null) {
+          // Si le code n'a pas été modifié mais existe, l'inclure
+          tacheData.code = tacheProjet.code;
+        }
+        
         // Toujours envoyer la couleur si elle existe dans tachesCouleursModal (modifiée dans le modal)
         // Cela permet de personnaliser la couleur même pour les tâches avec tache_type_id
         if (couleurModifiee !== undefined && couleurModifiee !== null) {
@@ -488,7 +544,7 @@ export const ProjetsPage = () => {
         }
         // Pour les tâches avec tache_type_id sans modification, on n'envoie pas de couleur (elle viendra du tache_type)
         
-        console.log(`Envoi tâche ${tid}: couleur modifiée=${couleurModifiee}, couleur originale=${couleurOriginale}, tache_type_id=${tacheProjet.tache_type_id}, couleur envoyée=${tacheData.couleur}`);
+        console.log(`Envoi tâche ${tid}: couleur modifiée=${couleurModifiee}, couleur originale=${couleurOriginale}, tache_type_id=${tacheProjet.tache_type_id}, couleur envoyée=${tacheData.couleur}, code envoyé=${tacheData.code}`);
         
         return tacheData;
       } else {
@@ -826,11 +882,7 @@ export const ProjetsPage = () => {
                       <div className="space-y-2">
                         {projet.taches
                           .slice()
-                          .sort((a: any, b: any) => {
-                            const nomA = (a.nom_tache || a.tache_type?.tache_type || '').toLowerCase();
-                            const nomB = (b.nom_tache || b.tache_type?.tache_type || '').toLowerCase();
-                            return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
-                          })
+                          .sort(sortTachesByCode)
                           .map((tache: any) => {
                           const isEditing = editingTache?.projetId === projet.id && editingTache?.tacheId === String(tache.id);
                           return (
@@ -1147,11 +1199,7 @@ export const ProjetsPage = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {tachesProjet
                   .slice()
-                  .sort((a: any, b: any) => {
-                    const nomA = (a.nom_tache || a.nom || '').toLowerCase();
-                    const nomB = (b.nom_tache || b.nom || '').toLowerCase();
-                    return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
-                  })
+                  .sort(sortTachesByCode)
                   .map((tache: any) => {
                   const isSelected = selectedTaches.includes(tache.id);
                   const heuresActuelles = tachesHeuresModal[tache.id] || tache.heures_prevues || 0;
@@ -1304,11 +1352,7 @@ export const ProjetsPage = () => {
                 <div className="flex flex-wrap gap-2 mb-4">
                   {selectedProjet.taches
                     .slice()
-                    .sort((a: any, b: any) => {
-                      const nomA = (a.nom_tache || a.tache_type?.tache_type || '').toLowerCase();
-                      const nomB = (b.nom_tache || b.tache_type?.tache_type || '').toLowerCase();
-                      return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
-                    })
+                    .sort(sortTachesByCode)
                     .map((t: any) => (
                       <span
                         key={t.id}
@@ -1339,11 +1383,7 @@ export const ProjetsPage = () => {
                   { value: '', label: 'Sélectionner une tâche...' },
                   ...(selectedProjet?.taches
                     ?.slice()
-                    .sort((a: any, b: any) => {
-                      const nomA = (a.nom_tache || a.tache_type?.tache_type || '').toLowerCase();
-                      const nomB = (b.nom_tache || b.tache_type?.tache_type || '').toLowerCase();
-                      return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
-                    })
+                    .sort(sortTachesByCode)
                     .map((t: any) => ({
                       value: String(t.id), // Utiliser tache_projet_id au lieu de tache_type_id
                       label: (() => {
@@ -1476,9 +1516,8 @@ export const ProjetsPage = () => {
               })
               .filter((t: any) => t !== null)
               .sort((a: any, b: any) => {
-                const nomA = (a.nom_tache || a.nom || '').toLowerCase();
-                const nomB = (b.nom_tache || b.nom || '').toLowerCase();
-                return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
+                // Utiliser la fonction de tri par code
+                return sortTachesByCode(a, b);
               })
               .map((tache: any) => {
               const tacheId = tache.tacheId;
@@ -1505,6 +1544,19 @@ export const ProjetsPage = () => {
                         });
                       }}
                       placeholder={tache.nom_tache || tache.nom}
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <Input
+                      label="Code de la tâche"
+                      value={tachesCodesModal[tacheId] ?? tache.code ?? ''}
+                      onChange={(e) => {
+                        setTachesCodesModal({
+                          ...tachesCodesModal,
+                          [tacheId]: e.target.value.toUpperCase(),
+                        });
+                      }}
+                      placeholder="Ex: CAB, DAO, PROG..."
                     />
                   </div>
                   <div className="mb-3">
@@ -1660,7 +1712,7 @@ export const ProjetsPage = () => {
         isOpen={isNewTacheModalOpen}
         onClose={() => {
           setIsNewTacheModalOpen(false);
-          setNewTache({ nom: '', heures_prevues: 0, couleur: '#10B981' });
+          setNewTache({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
         }}
         title="Créer une nouvelle tâche pour ce projet"
         size="md"
@@ -1671,6 +1723,12 @@ export const ProjetsPage = () => {
             value={newTache.nom}
             onChange={(e) => setNewTache({ ...newTache, nom: e.target.value })}
             placeholder="Ex: Installation électrique, Tests..."
+          />
+          <Input
+            label="Code de la tâche"
+            value={newTache.code}
+            onChange={(e) => setNewTache({ ...newTache, code: e.target.value.toUpperCase() })}
+            placeholder="Ex: CAB, DAO, PROG..."
           />
           <Input
             type="number"
@@ -1717,7 +1775,7 @@ export const ProjetsPage = () => {
               variant="outline"
               onClick={() => {
                 setIsNewTacheModalOpen(false);
-                setNewTache({ nom: '', heures_prevues: 0, couleur: '#10B981' });
+                setNewTache({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
               }}
             >
               Annuler
@@ -1732,6 +1790,7 @@ export const ProjetsPage = () => {
                 const nouvelleTache = {
                   id: `temp-${Date.now()}`,
                   nom_tache: newTache.nom,
+                  code: newTache.code,
                   heures_prevues: newTache.heures_prevues,
                   couleur: newTache.couleur,
                 };

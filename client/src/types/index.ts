@@ -58,8 +58,8 @@ export interface Projet {
   description?: string;
   client_id?: string;
   projet_status_id?: string;
-  date_debut?: string;
-  date_fin_prevue?: string;
+  start_date?: string;
+  end_date?: string;
   date_fin_reelle?: string;
   budget_heures?: number;
   budget_euros?: number;
@@ -80,10 +80,11 @@ export interface ProjetStatus {
 export interface TacheType {
   id: string;
   code: string;
-  libelle: string;
+  tache_type: string;
   description?: string;
   couleur?: string;
-  facturable: boolean;
+  is_facturable: boolean;
+  facturable?: boolean; // Alias pour compatibilité
   actif: boolean;
 }
 
