@@ -130,6 +130,8 @@ router.get('/heures-projet', authMiddleware, managerMiddleware, async (req: Auth
 // GET /api/dashboard/validations - Validations en attente
 router.get('/validations', authMiddleware, managerMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const HEURES_SEMAINE_NORMALE = 35;
+    
     const validations = await prisma.validationSemaine.findMany({
       where: { status: 'Soumis' },
       include: {
@@ -140,9 +142,10 @@ router.get('/validations', authMiddleware, managerMiddleware, async (req: AuthRe
       orderBy: [{ annee: 'asc' }, { semaine: 'asc' }]
     });
 
-    // Pour chaque validation, calculer le total des heures
+    // Pour chaque validation, calculer le total des heures, heures sup, heures dues
     const validationsAvecHeures = await Promise.all(
       validations.map(async (v) => {
+        // Récupérer les pointages de la semaine
         const pointages = await prisma.salariePointage.findMany({
           where: {
             salarie_id: v.salarie_id,
@@ -151,6 +154,7 @@ router.get('/validations', authMiddleware, managerMiddleware, async (req: AuthRe
           }
         });
 
+        // Calculer le total des heures travaillées
         const totalHeures = pointages.reduce((sum, p) => {
           return sum + 
             Number(p.heure_lundi || 0) +
@@ -162,9 +166,71 @@ router.get('/validations', authMiddleware, managerMiddleware, async (req: AuthRe
             Number(p.heure_dimanche || 0);
         }, 0);
 
+        // Récupérer les congés de la semaine pour calculer les heures de maladie
+        const conges = await prisma.salarieCp.findMany({
+          where: {
+            salarie_id: v.salarie_id,
+            annee: v.annee,
+            semaine: v.semaine,
+            type_conge: 'Maladie'
+          }
+        });
+
+        // Compter les jours de maladie (1 jour = 7h)
+        const joursMaladie = conges.reduce((sum, c) => {
+          return sum + 
+            (c.cp_lundi ? 1 : 0) +
+            (c.cp_mardi ? 1 : 0) +
+            (c.cp_mercredi ? 1 : 0) +
+            (c.cp_jeudi ? 1 : 0) +
+            (c.cp_vendredi ? 1 : 0) +
+            (c.cp_samedi ? 1 : 0) +
+            (c.cp_dimanche ? 1 : 0);
+        }, 0);
+        const heuresMaladie = joursMaladie * 7;
+
+        // Récupérer le cumul des heures dues de la semaine précédente
+        const derniereValidation = await prisma.validationSemaine.findFirst({
+          where: {
+            salarie_id: v.salarie_id,
+            OR: [
+              { annee: { lt: v.annee } },
+              { 
+                annee: v.annee,
+                semaine: { lt: v.semaine }
+              }
+            ],
+            status: { in: ['Valide', 'Soumis'] }
+          },
+          orderBy: [
+            { annee: 'desc' },
+            { semaine: 'desc' }
+          ]
+        });
+
+        const cumulHeuresDuesPrecedentes = derniereValidation ? Number(derniereValidation.heures_dues || 0) : 0;
+
+        // Calculer les heures normales requises (35h + cumul précédent)
+        const heuresNormalesRequises = HEURES_SEMAINE_NORMALE + cumulHeuresDuesPrecedentes;
+
+        // Calculer les heures dues de cette semaine
+        const heuresDuesSemaine = Math.max(0, heuresNormalesRequises - totalHeures);
+        const heuresDues = heuresDuesSemaine + heuresMaladie;
+
+        // Calculer les heures en plus
+        const heuresEnPlus = Math.max(0, totalHeures - heuresNormalesRequises);
+
+        // Les heures en plus servent d'abord à rattraper les heures dues
+        const heuresRattrapees = Math.min(heuresEnPlus, cumulHeuresDuesPrecedentes);
+        const heuresSup = Math.max(0, heuresEnPlus - heuresRattrapees);
+
         return {
           ...v,
-          total_heures_travaillees: totalHeures
+          total_heures_travaillees: totalHeures,
+          heures_sup: heuresSup,
+          heures_dues: heuresDues,
+          heures_rattrapees: heuresRattrapees,
+          cumul_heures_dues_precedentes: cumulHeuresDuesPrecedentes
         };
       })
     );
@@ -256,20 +322,20 @@ router.get('/mes-stats', authMiddleware, async (req: AuthRequest, res: Response)
   }
 });
 
-// GET /api/dashboard/notifications - Notifications non lues
+// GET /api/dashboard/notifications - Notifications (toutes, pas seulement non lues)
 router.get('/notifications', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const notifications = await prisma.notification.findMany({
       where: { 
-        salarie_id: req.user!.id,
-        lu: false
+        salarie_id: req.user!.id
       },
       orderBy: { created_at: 'desc' },
-      take: 10
+      take: 50
     });
 
     res.json(serializeBigInt(notifications));
   } catch (error) {
+    console.error('Erreur récupération notifications:', error);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });

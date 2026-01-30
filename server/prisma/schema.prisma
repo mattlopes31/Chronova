@@ -271,20 +271,26 @@ model TacheType {
 model TacheProjet {
   id            BigInt   @id @default(autoincrement())
   projet_id     BigInt
-  tache_type_id BigInt
+  tache_type_id BigInt?
+  nom_tache     String?  @db.VarChar(250) // Nom personnalisé de la tâche pour ce projet
+  code          String?  @db.VarChar(20) // Code personnalisé de la tâche pour ce projet
   heures_prevues Int     @default(0)
   taux_horaire  Decimal? @default(50.00) @db.Decimal(10, 2)
   description   String?  @db.Text
+  couleur       String?  @default("#10B981") @db.VarChar(7) // Couleur pour l'affichage
   actif         Boolean  @default(true)
   created_at    DateTime @default(now())
   updated_at    DateTime @default(now()) @updatedAt
 
   // Relations
   projet     Projet               @relation(fields: [projet_id], references: [id], onDelete: Cascade)
-  tache_type TacheType            @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
+  tache_type TacheType?           @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
   affectations TacheProjetSalarie[]
 
-  @@unique([projet_id, tache_type_id])
+  // Contrainte unique pour tache_type_id (permet plusieurs NULL)
+  // Note: PostgreSQL permet plusieurs NULL dans une contrainte unique
+  @@unique([projet_id, tache_type_id], name: "projet_tache_type_unique")
+  @@index([nom_tache])
   @@index([projet_id])
   @@index([tache_type_id])
   @@map("tache_projet")
@@ -293,7 +299,7 @@ model TacheProjet {
 model TacheProjetSalarie {
   id               BigInt   @id @default(autoincrement())
   projet_id        BigInt
-  tache_type_id    BigInt
+  tache_type_id    BigInt?  // Nullable pour supporter les tâches personnalisées
   tache_projet_id  BigInt
   salarie_id       BigInt
   date_affectation DateTime @default(now()) @db.Date
@@ -302,7 +308,7 @@ model TacheProjetSalarie {
 
   // Relations
   projet      Projet      @relation(fields: [projet_id], references: [id], onDelete: Cascade)
-  tache_type  TacheType   @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
+  tache_type  TacheType?  @relation(fields: [tache_type_id], references: [id], onDelete: Cascade)
   tache_projet TacheProjet @relation(fields: [tache_projet_id], references: [id], onDelete: Cascade)
   salarie     Salarie     @relation(fields: [salarie_id], references: [id], onDelete: Cascade)
 
@@ -414,6 +420,7 @@ model ValidationSemaine {
   semaine              Int                  @db.SmallInt
   status               ValidationStatusEnum @default(Brouillon)
   total_heures         Decimal?             @default(0) @db.Decimal(5, 2)
+  heures_dues          Decimal?             @default(0) @db.Decimal(5, 2)
   valide_par           BigInt?
   date_soumission      DateTime?
   date_validation      DateTime?

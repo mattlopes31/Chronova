@@ -98,16 +98,13 @@ router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: 
       data: {
         nom: data.nom,
         code_client: data.code_client || null,
-        email: data.email || null,
-        tel: data.tel || null,
         adresse: data.adresse || null,
         cp: data.code_postal || data.cp || null,
         ville: data.ville || null,
-        site_web: data.site_web || null,
         contact_nom: data.contact_nom || null,
         contact_prenom: data.contact_prenom || null,
-        contact_email: data.contact_email || null,
-        contact_tel: data.contact_tel || null,
+        contact_email: data.contact_email || data.email || null, // email du frontend -> contact_email
+        contact_tel: data.contact_tel || data.tel || null, // tel du frontend -> contact_tel
         pays_id: data.pays_id ? BigInt(data.pays_id) : null,
         siret: data.siret || null,
         notes: data.notes || null,
@@ -134,18 +131,16 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res
     const updateData: any = {
       nom: data.nom,
       code_client: data.code_client || null,
-      email: data.email || null,
-      tel: data.tel || null,
       adresse: data.adresse || null,
       cp: data.code_postal || data.cp || null,
       ville: data.ville || null,
-      site_web: data.site_web || null,
       contact_nom: data.contact_nom || null,
       contact_prenom: data.contact_prenom || null,
-      contact_email: data.contact_email || null,
-      contact_tel: data.contact_tel || null,
+      contact_email: data.contact_email || data.email || null, // email du frontend -> contact_email
+      contact_tel: data.contact_tel || data.tel || null, // tel du frontend -> contact_tel
       notes: data.notes || null,
-      actif: data.actif !== undefined ? data.actif : true
+      actif: data.actif !== undefined ? data.actif : true,
+      siret: data.siret || null
     };
     
     if (data.pays_id) updateData.pays_id = BigInt(data.pays_id);

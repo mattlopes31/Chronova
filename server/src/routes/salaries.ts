@@ -138,14 +138,38 @@ router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: 
 
     const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
 
+    // Préparer les données avec conversion des dates et BigInt
+    const salarieData: any = {
+      nom: data.nom,
+      prenom: data.prenom,
+      email: data.email,
+      tel: data.tel || null,
+      password_hash: hashedPassword,
+      role: data.role || 'Salarie',
+      actif: data.actif !== undefined ? data.actif : true,
+      heures_hebdo: data.heures_hebdo || 35,
+      taux_horaire: data.taux_horaire || null,
+      salarie_fonction_id: data.salarie_fonction_id ? BigInt(data.salarie_fonction_id) : null,
+      salarie_status_id: data.salarie_status_id ? BigInt(data.salarie_status_id) : null,
+      manager_id: data.manager_id ? BigInt(data.manager_id) : null,
+      matricule: data.matricule || null,
+    };
+
+    // Convertir les dates correctement (Prisma attend des objets Date ou null)
+    if (data.date_entree) {
+      salarieData.date_entree = new Date(data.date_entree);
+    } else {
+      salarieData.date_entree = null;
+    }
+    
+    if (data.date_sortie) {
+      salarieData.date_sortie = new Date(data.date_sortie);
+    } else {
+      salarieData.date_sortie = null;
+    }
+
     const salarie = await prisma.salarie.create({
-      data: {
-        ...data,
-        password_hash: hashedPassword,
-        salarie_fonction_id: data.salarie_fonction_id ? BigInt(data.salarie_fonction_id) : null,
-        salarie_status_id: data.salarie_status_id ? BigInt(data.salarie_status_id) : null,
-        manager_id: data.manager_id ? BigInt(data.manager_id) : null
-      },
+      data: salarieData,
       include: {
         fonction: true,
         status: true
