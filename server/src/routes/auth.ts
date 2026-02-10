@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middlewares/auth';
 
@@ -51,11 +51,10 @@ router.post('/login', async (req: Request, res: Response) => {
     });
 
     const secret = process.env.JWT_SECRET || 'chronova-secret';
-    const token = jwt.sign(
-      { id: salarie.id.toString(), email: salarie.email },
-      secret,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-    );
+    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+    const payload = { id: salarie.id.toString(), email: salarie.email };
+    // @ts-ignore - TypeScript type issue with jsonwebtoken
+    const token = jwt.sign(payload, secret, { expiresIn });
 
     const { password_hash, token_reset_password, token_expiration, ...salarieData } = salarie;
 

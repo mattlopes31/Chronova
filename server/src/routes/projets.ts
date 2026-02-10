@@ -948,12 +948,10 @@ router.post('/:id/taches', authMiddleware, managerMiddleware, async (req: AuthRe
     }
 
     // Vérifier si la tâche existe déjà pour ce projet
-    const existingTache = await prisma.tacheProjet.findUnique({
+    const existingTache = await prisma.tacheProjet.findFirst({
       where: {
-        projet_id_tache_type_id: {
-          projet_id,
-          tache_type_id: tacheTypeId
-        }
+        projet_id,
+        tache_type_id: tacheTypeId
       }
     });
 
