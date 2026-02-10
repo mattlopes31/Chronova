@@ -10,6 +10,7 @@ import {
   Building2,
   CalendarOff,
   Calendar,
+  CalendarDays,
   Settings,
   LogOut,
   Menu,
@@ -74,12 +75,13 @@ export const Layout = ({ children }: LayoutProps) => {
 
   const adminNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Calendrier', href: '/calendrier', icon: Calendar },
+    { name: 'Calendrier view', href: '/calendrier-view', icon: CalendarDays },
     { name: 'Validations', href: '/validations', icon: CheckCircle },
     { name: 'Détails projets', href: '/projets-details', icon: FolderKanban },
-    { name: 'Salariés', href: '/salaries', icon: Users },
     { name: 'Projets', href: '/projets', icon: FolderKanban },
-    { name: 'Calendrier', href: '/calendrier', icon: Calendar },
     { name: 'Clients', href: '/clients', icon: Building2 },
+    { name: 'Salariés', href: '/salaries', icon: Users },
     { name: 'Congés', href: '/conges', icon: CalendarOff },
   ];
 

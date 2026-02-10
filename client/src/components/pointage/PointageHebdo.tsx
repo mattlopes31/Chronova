@@ -481,16 +481,9 @@ export const PointageHebdo = () => {
     const joursDeplacement = JOURS_OUVRABLES.filter(j => deplacements[j]).length;
     const heuresDeplacement = 0; // Les heures sont saisies manuellement, pas automatiques
 
-    // Jours de formation
-    const joursFormation = JOURS_OUVRABLES.filter(j => {
-      const jourData = conges[j];
-      return jourData.actif && jourData.type === 'Formation';
-    }).length;
-    const heuresFormation = joursFormation * HEURES_CP_PAR_JOUR;
-
-    // Total semaine = travail (incluant les heures de déplacement saisies manuellement) + CP + formation (maladie = heures dues)
+    // Total semaine = travail (incluant les heures de déplacement saisies manuellement) + CP (maladie = heures dues)
     // Les heures de déplacement sont maintenant incluses dans heuresTravaillees car elles sont saisies dans les lignes de pointage
-    const totalSemaine = heuresTravaillees + heuresCP + heuresFormation;
+    const totalSemaine = heuresTravaillees + heuresCP;
 
     // Récupérer le cumul des heures dues des semaines précédentes
     // On utilise toujours cumul_heures_dues qui représente le cumul AVANT cette semaine
@@ -532,8 +525,6 @@ export const PointageHebdo = () => {
       heuresMaladie,
       joursDeplacement,
       heuresDeplacement,
-      joursFormation,
-      heuresFormation,
       totalSemaine,
       heuresNormales,
       heuresSup,
@@ -691,7 +682,7 @@ export const PointageHebdo = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {/* Ligne Absences (CP, Maladie, Formation, Sans solde) */}
+              {/* Ligne Absences (CP, Maladie, Sans solde) */}
               <tr className="bg-gradient-to-r from-amber-50/50 to-blue-50/50">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -701,7 +692,6 @@ export const PointageHebdo = () => {
                   <div className="flex flex-wrap gap-1 mt-1 text-xs">
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">CP</span>
                     <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded">Maladie</span>
-                    <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded">Formation</span>
                     <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded">Sans solde</span>
                   </div>
                 </td>
@@ -716,7 +706,6 @@ export const PointageHebdo = () => {
                   const getTypeColor = (type: string) => {
                     switch(type) {
                       case 'Maladie': return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300', checkbox: 'text-blue-600 focus:ring-blue-500' };
-                      case 'Formation': return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', checkbox: 'text-green-600 focus:ring-green-500' };
                       case 'Sans_solde': return { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-300', checkbox: 'text-gray-600 focus:ring-gray-500' };
                       default: return { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300', checkbox: 'text-amber-600 focus:ring-amber-500' };
                     }
@@ -759,7 +748,6 @@ export const PointageHebdo = () => {
                             >
                               <option value="CP">CP</option>
                               <option value="Maladie">Maladie</option>
-                              <option value="Formation">Formation</option>
                               <option value="Sans_solde">Sans solde</option>
                             </select>
                           )}
@@ -778,10 +766,7 @@ export const PointageHebdo = () => {
                     {calculs.heuresMaladie > 0 && (
                       <span className="text-blue-700 font-semibold text-xs">{calculs.heuresMaladie}h Mal.</span>
                     )}
-                    {calculs.heuresFormation > 0 && (
-                      <span className="text-green-700 font-semibold text-xs">{calculs.heuresFormation}h Form.</span>
-                    )}
-                    {calculs.heuresCP === 0 && calculs.heuresMaladie === 0 && calculs.heuresFormation === 0 && (
+                    {calculs.heuresCP === 0 && calculs.heuresMaladie === 0 && (
                       <span className="text-gray-400">0h</span>
                     )}
                   </div>
@@ -913,7 +898,7 @@ export const PointageHebdo = () => {
                               updateHeures(index, jour, 0);
                             }
                           }}
-                          disabled={isLocked || cannotEdit || !!jourFerie}
+                          disabled={isLocked || cannotEdit}
                           min="0"
                           max="24"
                           step="0.5"

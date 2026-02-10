@@ -11,10 +11,15 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        // En Docker, utiliser le nom du service (api)
+        // En local, utiliser localhost
+        target: process.env.DOCKER === 'true' ? 'http://api:4000' : 'http://localhost:4000',
         changeOrigin: true,
+        // Ne pas échouer si l'API n'est pas disponible
+        timeout: 10000,
       },
     },
   },
