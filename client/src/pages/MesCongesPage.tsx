@@ -23,7 +23,6 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: strin
   CP: { label: 'Congé Payé', color: 'text-amber-700', bgColor: 'bg-amber-100', icon: Umbrella },
   Maladie: { label: 'Maladie', color: 'text-blue-700', bgColor: 'bg-blue-100', icon: Stethoscope },
   Deplacement: { label: 'Déplacement', color: 'text-purple-700', bgColor: 'bg-purple-100', icon: Plane },
-  Formation: { label: 'Formation', color: 'text-green-700', bgColor: 'bg-green-100', icon: Calendar },
   Sans_solde: { label: 'Sans solde', color: 'text-gray-700', bgColor: 'bg-gray-100', icon: Calendar },
   Autre: { label: 'Autre', color: 'text-gray-700', bgColor: 'bg-gray-100', icon: Calendar },
 };
@@ -114,7 +113,6 @@ export const MesCongesPage = () => {
       CP: { jours: 0, heures: 0 },
       Maladie: { jours: 0, heures: 0 },
       Deplacement: { jours: 0, heures: 0 },
-      Formation: { jours: 0, heures: 0 },
       Sans_solde: { jours: 0, heures: 0 },
       Autre: { jours: 0, heures: 0 },
     };
@@ -188,7 +186,6 @@ export const MesCongesPage = () => {
               { value: 'CP', label: '🏖️ Congé Payé' },
               { value: 'Maladie', label: '🏥 Maladie' },
               { value: 'Deplacement', label: '✈️ Déplacement' },
-              { value: 'Formation', label: '📚 Formation' },
               { value: 'Sans_solde', label: '📋 Sans solde' },
             ]}
             className="w-44"
@@ -230,16 +227,6 @@ export const MesCongesPage = () => {
           </div>
           <div className="text-2xl font-bold text-purple-600">{stats.Deplacement.jours}j</div>
           <div className="text-xs text-gray-500">{stats.Deplacement.heures}h</div>
-        </Card>
-
-        {/* Formation */}
-        <Card className={clsx('p-4', stats.Formation.jours > 0 && 'bg-green-50 border-green-200')}>
-          <div className="flex items-center gap-2 mb-2">
-            <Calendar className="w-5 h-5 text-green-600" />
-            <span className="text-sm font-medium text-gray-600">Formation</span>
-          </div>
-          <div className="text-2xl font-bold text-green-600">{stats.Formation.jours}j</div>
-          <div className="text-xs text-gray-500">{stats.Formation.heures}h</div>
         </Card>
 
         {/* Sans solde */}

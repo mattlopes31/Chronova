@@ -13,6 +13,8 @@ import {
   Shield,
   Briefcase,
   AlertTriangle,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { salariesApi } from '@/services/api';
@@ -62,6 +64,7 @@ export const SalariesPage = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedSalarie, setSelectedSalarie] = useState<any>(null);
   const [form, setForm] = useState<SalarieForm>(initialForm);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Queries
   const { data: salaries = [], isLoading } = useQuery({
@@ -105,34 +108,46 @@ export const SalariesPage = () => {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: salariesApi.delete,
+    mutationFn: ({ id, data }: { id: string; data: any }) => salariesApi.update(id, data),
     onSuccess: () => {
-      toast.success('Salarié supprimé');
+      toast.success('Salarié désactivé');
       queryClient.invalidateQueries({ queryKey: ['salaries'] });
       setIsDeleteModalOpen(false);
       setSelectedSalarie(null);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.error || 'Erreur lors de la suppression');
+      toast.error(error.response?.data?.error || 'Erreur lors de la désactivation');
     },
   });
 
-  // Filtrage
-  const filteredSalaries = salaries.filter((s: any) => {
-    const matchSearch =
-      s.nom.toLowerCase().includes(search.toLowerCase()) ||
-      s.prenom.toLowerCase().includes(search.toLowerCase()) ||
-      s.email.toLowerCase().includes(search.toLowerCase());
+  // Filtrage et tri
+  const filteredSalaries = salaries
+    .filter((s: any) => {
+      const matchSearch =
+        s.nom.toLowerCase().includes(search.toLowerCase()) ||
+        s.prenom.toLowerCase().includes(search.toLowerCase()) ||
+        s.email.toLowerCase().includes(search.toLowerCase());
 
-    const matchActif =
-      filterActif === 'all' ||
-      (filterActif === 'actif' && s.actif) ||
-      (filterActif === 'inactif' && !s.actif);
+      const matchActif =
+        filterActif === 'all' ||
+        (filterActif === 'actif' && s.actif) ||
+        (filterActif === 'inactif' && !s.actif);
 
-    const matchRole = !filterRole || s.role === filterRole;
+      const matchRole = !filterRole || s.role === filterRole;
 
-    return matchSearch && matchActif && matchRole;
-  });
+      return matchSearch && matchActif && matchRole;
+    })
+    .sort((a: any, b: any) => {
+      // Trier par ordre alphabétique (nom puis prénom)
+      const nomA = (a.nom || '').toLowerCase();
+      const nomB = (b.nom || '').toLowerCase();
+      if (nomA !== nomB) {
+        return nomA.localeCompare(nomB, 'fr');
+      }
+      const prenomA = (a.prenom || '').toLowerCase();
+      const prenomB = (b.prenom || '').toLowerCase();
+      return prenomA.localeCompare(prenomB, 'fr');
+    });
 
   // Handlers
   const openCreateModal = () => {
@@ -398,7 +413,7 @@ export const SalariesPage = () => {
                     <button
                       onClick={() => confirmDelete(salarie)}
                       className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
-                      title="Supprimer"
+                      title="Désactiver le salarié"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -454,13 +469,22 @@ export const SalariesPage = () => {
           <div>
             <h3 className="text-sm font-medium text-gray-700 mb-3">Authentification</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label={selectedSalarie ? 'Nouveau mot de passe' : 'Mot de passe *'}
-                type="password"
-                value={form.password || ''}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder={selectedSalarie ? 'Laisser vide pour ne pas changer' : '••••••••'}
-              />
+              <div className="relative">
+                <Input
+                  label={selectedSalarie ? 'Nouveau mot de passe' : 'Mot de passe *'}
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password || ''}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={selectedSalarie ? 'Laisser vide pour ne pas changer' : '••••••••'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
               <Select
                 label="Rôle *"
                 value={form.role}
@@ -570,20 +594,20 @@ export const SalariesPage = () => {
         </form>
       </Modal>
 
-      {/* Modal Suppression */}
+      {/* Modal Désactivation */}
       <Modal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
-        title="Supprimer le salarié"
+        title="Désactiver le salarié"
         size="sm"
       >
         <div className="space-y-4">
           <p className="text-gray-600">
-            Êtes-vous sûr de vouloir supprimer{' '}
+            Êtes-vous sûr de vouloir désactiver{' '}
             <strong>
               {selectedSalarie?.prenom} {selectedSalarie?.nom}
             </strong>{' '}
-            ? Cette action est irréversible.
+            ? Le salarié ne pourra plus se connecter à l'application.
           </p>
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)}>
@@ -591,10 +615,10 @@ export const SalariesPage = () => {
             </Button>
             <Button
               variant="danger"
-              onClick={() => deleteMutation.mutate(selectedSalarie.id)}
+              onClick={() => deleteMutation.mutate({ id: selectedSalarie.id, data: { actif: false } })}
               isLoading={deleteMutation.isPending}
             >
-              Supprimer
+              Désactiver le salarié
             </Button>
           </div>
         </div>

@@ -216,14 +216,14 @@ export const ProjetsDetailsPage = () => {
                               <tr key={tache.id} className="hover:bg-gray-50">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-gray-900">
-                                      {tache.tache_type}
-                                    </span>
                                     {tache.code && (
                                       <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                                         {tache.code}
                                       </span>
                                     )}
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {tache.tache_type}
+                                    </span>
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">

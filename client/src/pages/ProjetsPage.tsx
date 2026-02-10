@@ -1181,7 +1181,7 @@ export const ProjetsPage = () => {
                     className="flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
                   >
                     <Edit2 className="w-4 h-4" />
-                    Éditer les heures
+                    Éditer les tâches
                   </button>
                 )}
                 <button
@@ -1535,19 +1535,6 @@ export const ProjetsPage = () => {
                 >
                   <div className="mb-3">
                     <Input
-                      label="Nom de la tâche"
-                      value={nomActuel}
-                      onChange={(e) => {
-                        setTachesNomsModal({
-                          ...tachesNomsModal,
-                          [tacheId]: e.target.value,
-                        });
-                      }}
-                      placeholder={tache.nom_tache || tache.nom}
-                    />
-                  </div>
-                  <div className="mb-3">
-                    <Input
                       label="Code de la tâche"
                       value={tachesCodesModal[tacheId] ?? tache.code ?? ''}
                       onChange={(e) => {
@@ -1557,6 +1544,19 @@ export const ProjetsPage = () => {
                         });
                       }}
                       placeholder="Ex: CAB, DAO, PROG..."
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <Input
+                      label="Nom de la tâche"
+                      value={nomActuel}
+                      onChange={(e) => {
+                        setTachesNomsModal({
+                          ...tachesNomsModal,
+                          [tacheId]: e.target.value,
+                        });
+                      }}
+                      placeholder={tache.nom_tache || tache.nom}
                     />
                   </div>
                   <div className="mb-3">
@@ -1719,16 +1719,16 @@ export const ProjetsPage = () => {
       >
         <div className="space-y-4">
           <Input
-            label="Nom de la tâche *"
-            value={newTache.nom}
-            onChange={(e) => setNewTache({ ...newTache, nom: e.target.value })}
-            placeholder="Ex: Installation électrique, Tests..."
-          />
-          <Input
             label="Code de la tâche"
             value={newTache.code}
             onChange={(e) => setNewTache({ ...newTache, code: e.target.value.toUpperCase() })}
             placeholder="Ex: CAB, DAO, PROG..."
+          />
+          <Input
+            label="Nom de la tâche *"
+            value={newTache.nom}
+            onChange={(e) => setNewTache({ ...newTache, nom: e.target.value })}
+            placeholder="Ex: Installation électrique, Tests..."
           />
           <Input
             type="number"
