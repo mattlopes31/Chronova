@@ -167,8 +167,9 @@ async function main() {
     update: {},
     create: {
       nom: 'Client Demo',
+      contact_nom: 'Contact Demo',
       code_client: 'DEMO',
-      email: 'contact@clientdemo.fr',
+      contact_email: 'contact@clientdemo.fr',
       ville: 'Paris',
       actif: true,
     },
@@ -200,7 +201,7 @@ async function main() {
   // Ajouter les tâches au projet
   if (tacheCablage) {
     const tacheProjetCab = await prisma.tacheProjet.upsert({
-      where: { projet_id_tache_type_id: { projet_id: projet.id, tache_type_id: tacheCablage.id } },
+      where: { projet_tache_type_unique: { projet_id: projet.id, tache_type_id: tacheCablage.id } },
       update: {},
       create: {
         projet_id: projet.id,
@@ -225,7 +226,7 @@ async function main() {
 
   if (tacheProg) {
     const tacheProjetProg = await prisma.tacheProjet.upsert({
-      where: { projet_id_tache_type_id: { projet_id: projet.id, tache_type_id: tacheProg.id } },
+      where: { projet_tache_type_unique: { projet_id: projet.id, tache_type_id: tacheProg.id } },
       update: {},
       create: {
         projet_id: projet.id,
@@ -250,7 +251,7 @@ async function main() {
 
   if (tacheScada) {
     const tacheProjetScada = await prisma.tacheProjet.upsert({
-      where: { projet_id_tache_type_id: { projet_id: projet.id, tache_type_id: tacheScada.id } },
+      where: { projet_tache_type_unique: { projet_id: projet.id, tache_type_id: tacheScada.id } },
       update: {},
       create: {
         projet_id: projet.id,
