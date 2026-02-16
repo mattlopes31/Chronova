@@ -107,16 +107,17 @@ export const SalariesPage = () => {
     },
   });
 
-  const deleteMutation = useMutation({
+  const toggleActifMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => salariesApi.update(id, data),
-    onSuccess: () => {
-      toast.success('Salarié désactivé');
+    onSuccess: (_, variables) => {
+      const isActivating = variables.data.actif;
+      toast.success(isActivating ? 'Salarié réactivé avec succès' : 'Salarié désactivé');
       queryClient.invalidateQueries({ queryKey: ['salaries'] });
       setIsDeleteModalOpen(false);
       setSelectedSalarie(null);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.error || 'Erreur lors de la désactivation');
+      toast.error(error.response?.data?.error || 'Erreur lors de la modification');
     },
   });
 
@@ -138,7 +139,11 @@ export const SalariesPage = () => {
       return matchSearch && matchActif && matchRole;
     })
     .sort((a: any, b: any) => {
-      // Trier par ordre alphabétique (nom puis prénom)
+      // D'abord, trier par statut actif : actifs en premier, inactifs en bas
+      if (a.actif !== b.actif) {
+        return a.actif ? -1 : 1;
+      }
+      // Ensuite, trier par ordre alphabétique (nom puis prénom)
       const nomA = (a.nom || '').toLowerCase();
       const nomB = (b.nom || '').toLowerCase();
       if (nomA !== nomB) {
@@ -321,107 +326,220 @@ export const SalariesPage = () => {
           }
         />
       ) : (
-        <div className="grid gap-4">
-          {filteredSalaries.map((salarie: any) => {
-            const expired = isExpired(salarie.date_sortie);
-            return (
-              <Card
-                key={salarie.id}
-                className={`p-4 ${!salarie.actif || expired ? 'opacity-60 bg-gray-50' : ''}`}
-              >
-                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  {/* Avatar et infos principales */}
-                  <div className="flex items-center gap-4 flex-1">
-                    <div
-                      className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                        salarie.actif && !expired ? 'bg-primary-100' : 'bg-gray-200'
-                      }`}
-                    >
-                      <span
-                        className={`text-lg font-semibold ${
-                          salarie.actif && !expired ? 'text-primary-700' : 'text-gray-500'
-                        }`}
+        <div className="space-y-4">
+          {/* Salariés actifs */}
+          {filteredSalaries.filter((s: any) => s.actif).length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-green-600" />
+                Salariés actifs ({filteredSalaries.filter((s: any) => s.actif).length})
+              </h2>
+              <div className="grid gap-4">
+                {filteredSalaries
+                  .filter((s: any) => s.actif)
+                  .map((salarie: any) => {
+                    const expired = isExpired(salarie.date_sortie);
+                    return (
+                      <Card
+                        key={salarie.id}
+                        className={`p-4 ${expired ? 'opacity-60 bg-gray-50' : ''}`}
                       >
-                        {salarie.prenom[0]}
-                        {salarie.nom[0]}
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">
-                          {salarie.prenom} {salarie.nom}
-                        </h3>
-                        {expired && (
-                          <span className="inline-flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-                            <AlertTriangle className="w-3 h-3" />
-                            Expiré
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <Mail className="w-4 h-4" />
-                          {salarie.email}
-                        </span>
-                        {salarie.tel && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="w-4 h-4" />
-                            {salarie.tel}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                          {/* Avatar et infos principales */}
+                          <div className="flex items-center gap-4 flex-1">
+                            <div
+                              className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                                salarie.actif && !expired ? 'bg-primary-100' : 'bg-gray-200'
+                              }`}
+                            >
+                              <span
+                                className={`text-lg font-semibold ${
+                                  salarie.actif && !expired ? 'text-primary-700' : 'text-gray-500'
+                                }`}
+                              >
+                                {salarie.prenom[0]}
+                                {salarie.nom[0]}
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-gray-900">
+                                  {salarie.prenom} {salarie.nom}
+                                </h3>
+                                {expired && (
+                                  <span className="inline-flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Expiré
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4 text-sm text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <Mail className="w-4 h-4" />
+                                  {salarie.email}
+                                </span>
+                                {salarie.tel && (
+                                  <span className="flex items-center gap-1">
+                                    <Phone className="w-4 h-4" />
+                                    {salarie.tel}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
 
-                  {/* Infos secondaires */}
-                  <div className="flex flex-wrap items-center gap-3">
-                    {getRoleBadge(salarie.role)}
-                    <Badge variant="default">
-                      <Briefcase className="w-3 h-3 mr-1" />
-                      {getFonctionLabel(salarie.salarie_fonction_id)}
-                    </Badge>
-                    <Badge variant={salarie.actif ? 'success' : 'danger'}>
-                      {salarie.actif ? (
-                        <>
-                          <UserCheck className="w-3 h-3 mr-1" />
-                          Actif
-                        </>
-                      ) : (
-                        <>
-                          <UserX className="w-3 h-3 mr-1" />
-                          Inactif
-                        </>
-                      )}
-                    </Badge>
-                    {salarie.date_entree && (
-                      <span className="text-xs text-gray-500 flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        Depuis {format(parseISO(salarie.date_entree), 'MMM yyyy', { locale: fr })}
-                      </span>
-                    )}
-                  </div>
+                          {/* Infos secondaires */}
+                          <div className="flex flex-wrap items-center gap-3">
+                            {getRoleBadge(salarie.role)}
+                            <Badge variant="default">
+                              <Briefcase className="w-3 h-3 mr-1" />
+                              {getFonctionLabel(salarie.salarie_fonction_id)}
+                            </Badge>
+                            <Badge variant={salarie.actif ? 'success' : 'danger'}>
+                              {salarie.actif ? (
+                                <>
+                                  <UserCheck className="w-3 h-3 mr-1" />
+                                  Actif
+                                </>
+                              ) : (
+                                <>
+                                  <UserX className="w-3 h-3 mr-1" />
+                                  Inactif
+                                </>
+                              )}
+                            </Badge>
+                            {salarie.date_entree && (
+                              <span className="text-xs text-gray-500 flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                Depuis {format(parseISO(salarie.date_entree), 'MMM yyyy', { locale: fr })}
+                              </span>
+                            )}
+                          </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => openEditModal(salarie)}
-                      className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
-                      title="Modifier"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => confirmDelete(salarie)}
-                      className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
-                      title="Désactiver le salarié"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+                          {/* Actions */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openEditModal(salarie)}
+                              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
+                              title="Modifier"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => confirmDelete(salarie)}
+                              className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
+                              title="Désactiver le salarié"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Salariés inactifs */}
+          {filteredSalaries.filter((s: any) => !s.actif).length > 0 && (
+            <div className="pt-6 border-t border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <UserX className="w-5 h-5 text-red-600" />
+                Salariés inactifs ({filteredSalaries.filter((s: any) => !s.actif).length})
+              </h2>
+              <div className="grid gap-4">
+                {filteredSalaries
+                  .filter((s: any) => !s.actif)
+                  .map((salarie: any) => {
+                    const expired = isExpired(salarie.date_sortie);
+                    return (
+                      <Card
+                        key={salarie.id}
+                        className="p-4 opacity-60 bg-gray-50"
+                      >
+                        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                          {/* Avatar et infos principales */}
+                          <div className="flex items-center gap-4 flex-1">
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center bg-gray-200">
+                              <span className="text-lg font-semibold text-gray-500">
+                                {salarie.prenom[0]}
+                                {salarie.nom[0]}
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-gray-900">
+                                  {salarie.prenom} {salarie.nom}
+                                </h3>
+                                {expired && (
+                                  <span className="inline-flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Expiré
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4 text-sm text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <Mail className="w-4 h-4" />
+                                  {salarie.email}
+                                </span>
+                                {salarie.tel && (
+                                  <span className="flex items-center gap-1">
+                                    <Phone className="w-4 h-4" />
+                                    {salarie.tel}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Infos secondaires */}
+                          <div className="flex flex-wrap items-center gap-3">
+                            {getRoleBadge(salarie.role)}
+                            <Badge variant="default">
+                              <Briefcase className="w-3 h-3 mr-1" />
+                              {getFonctionLabel(salarie.salarie_fonction_id)}
+                            </Badge>
+                            <Badge variant="danger">
+                              <UserX className="w-3 h-3 mr-1" />
+                              Inactif
+                            </Badge>
+                            {salarie.date_entree && (
+                              <span className="text-xs text-gray-500 flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                Depuis {format(parseISO(salarie.date_entree), 'MMM yyyy', { locale: fr })}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openEditModal(salarie)}
+                              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
+                              title="Modifier"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedSalarie(salarie);
+                                setIsDeleteModalOpen(true);
+                              }}
+                              className="p-2 rounded-lg hover:bg-green-50 text-green-600 transition-colors"
+                              title="Réactiver le salarié"
+                            >
+                              <UserCheck className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -594,33 +712,69 @@ export const SalariesPage = () => {
         </form>
       </Modal>
 
-      {/* Modal Désactivation */}
+      {/* Modal Désactivation/Réactivation */}
       <Modal
         isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
-        title="Désactiver le salarié"
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setSelectedSalarie(null);
+        }}
+        title={selectedSalarie?.actif ? 'Désactiver le salarié' : 'Réactiver le salarié'}
         size="sm"
       >
         <div className="space-y-4">
-          <p className="text-gray-600">
-            Êtes-vous sûr de vouloir désactiver{' '}
-            <strong>
-              {selectedSalarie?.prenom} {selectedSalarie?.nom}
-            </strong>{' '}
-            ? Le salarié ne pourra plus se connecter à l'application.
-          </p>
-          <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setIsDeleteModalOpen(false)}>
-              Annuler
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => deleteMutation.mutate({ id: selectedSalarie.id, data: { actif: false } })}
-              isLoading={deleteMutation.isPending}
-            >
-              Désactiver le salarié
-            </Button>
-          </div>
+          {selectedSalarie?.actif ? (
+            <>
+              <p className="text-gray-600">
+                Êtes-vous sûr de vouloir désactiver{' '}
+                <strong>
+                  {selectedSalarie?.prenom} {selectedSalarie?.nom}
+                </strong>{' '}
+                ? Le salarié ne pourra plus se connecter à l'application.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => {
+                  setIsDeleteModalOpen(false);
+                  setSelectedSalarie(null);
+                }}>
+                  Annuler
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => toggleActifMutation.mutate({ id: selectedSalarie.id, data: { actif: false } })}
+                  isLoading={toggleActifMutation.isPending}
+                >
+                  Désactiver le salarié
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-600">
+                Êtes-vous sûr de vouloir réactiver{' '}
+                <strong>
+                  {selectedSalarie?.prenom} {selectedSalarie?.nom}
+                </strong>{' '}
+                ? Le salarié pourra à nouveau se connecter à l'application.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => {
+                  setIsDeleteModalOpen(false);
+                  setSelectedSalarie(null);
+                }}>
+                  Annuler
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => toggleActifMutation.mutate({ id: selectedSalarie.id, data: { actif: true } })}
+                  isLoading={toggleActifMutation.isPending}
+                >
+                  <UserCheck className="w-4 h-4 mr-2" />
+                  Réactiver le salarié
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
     </div>

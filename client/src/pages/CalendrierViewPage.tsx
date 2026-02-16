@@ -1,9 +1,23 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { 
+  Calendar, 
+  ChevronLeft, 
+  ChevronRight, 
+  User, 
+  Clock, 
+  TrendingUp, 
+  TrendingDown,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  Info,
+  Filter,
+  Download,
+} from 'lucide-react';
 import { pointagesApi, salariesApi, congesApi } from '@/services/api';
-import { Card, Spinner, Select } from '@/components/ui';
+import { Card, Spinner, Select, Badge, Button } from '@/components/ui';
 import { 
   getWeek, 
   getYear, 
@@ -39,6 +53,8 @@ interface SemaineData {
 export const CalendrierViewPage = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedSalarie, setSelectedSalarie] = useState<string>('');
+  const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
   const currentMonth = currentDate.getMonth() + 1;
   const currentYear = currentDate.getFullYear();
@@ -229,6 +245,28 @@ export const CalendrierViewPage = () => {
     });
   }, [semainesData]);
 
+  // Calculer les totaux du mois
+  const totalsMois = useMemo(() => {
+    return semainesTriees.reduce((acc, semaineData) => {
+      const calculs = calculateWeekData(semaineData);
+      return {
+        totalHeures: acc.totalHeures + calculs.heuresTravaillees,
+        totalCP: acc.totalCP + calculs.heuresCP,
+        totalMaladie: acc.totalMaladie + calculs.heuresMaladie,
+        totalSup: acc.totalSup + calculs.heuresSup,
+        totalDues: acc.totalDues + calculs.heuresDues,
+        totalDeclarees: acc.totalDeclarees + calculs.heuresDeclarees,
+      };
+    }, {
+      totalHeures: 0,
+      totalCP: 0,
+      totalMaladie: 0,
+      totalSup: 0,
+      totalDues: 0,
+      totalDeclarees: 0,
+    });
+  }, [semainesTriees]);
+
   const goToPreviousMonth = () => {
     setCurrentDate(subMonths(currentDate, 1));
   };
@@ -249,65 +287,320 @@ export const CalendrierViewPage = () => {
     );
   }
 
+  const selectedSalarieData = salaries.find((s: Salarie) => s.id === selectedSalarie);
+
   return (
     <div className="space-y-6">
-      {/* En-tête */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Calendrier View</h1>
-          <p className="text-gray-600">Vue détaillée des pointages par semaine et par salarié</p>
+      {/* En-tête amélioré */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Vue Calendrier</h1>
+            <p className="text-gray-600 mt-1">Consultez les pointages détaillés par semaine</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={viewMode === 'cards' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('cards')}
+            >
+              <Calendar className="w-4 h-4" />
+              Cartes
+            </Button>
+            <Button
+              variant={viewMode === 'table' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+            >
+              <Filter className="w-4 h-4" />
+              Tableau
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Select
-            value={selectedSalarie}
-            onChange={(e) => setSelectedSalarie(e.target.value)}
-            options={[
-              { value: '', label: 'Sélectionner un salarié' },
-              ...salaries.map((s: Salarie) => ({
-                value: s.id,
-                label: `${s.prenom} ${s.nom}`,
-              })),
-            ]}
-            className="w-48"
-          />
-          <button
-            onClick={goToPreviousMonth}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Mois précédent"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <button
-            onClick={goToToday}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Aujourd'hui
-          </button>
-          <button
-            onClick={goToNextMonth}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Mois suivant"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
+
+        {/* Contrôles de navigation améliorés */}
+        <Card className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 flex-1">
+              <div className="flex items-center gap-2">
+                <User className="w-5 h-5 text-gray-400" />
+                <Select
+                  value={selectedSalarie}
+                  onChange={(e) => {
+                    setSelectedSalarie(e.target.value);
+                    setExpandedWeek(null);
+                  }}
+                  options={[
+                    { value: '', label: 'Tous les salariés' },
+                    ...salaries.map((s: Salarie) => ({
+                      value: s.id,
+                      label: `${s.prenom} ${s.nom}`,
+                    })),
+                  ]}
+                  className="w-64"
+                />
+              </div>
+              {selectedSalarieData && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 rounded-lg">
+                  <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
+                    <span className="text-sm font-semibold text-primary-700">
+                      {selectedSalarieData.prenom?.[0]}{selectedSalarieData.nom?.[0]}
+                    </span>
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {selectedSalarieData.prenom} {selectedSalarieData.nom}
+                  </span>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={goToPreviousMonth}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+                title="Mois précédent"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg">
+                <Calendar className="w-5 h-5 text-primary-600" />
+                <span className="font-semibold text-gray-900 min-w-[140px] text-center">
+                  {format(currentDate, 'MMMM yyyy', { locale: fr })}
+                </span>
+              </div>
+              <button
+                onClick={goToNextMonth}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+                title="Mois suivant"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToToday}
+              >
+                Aujourd'hui
+              </Button>
+            </div>
+          </div>
+        </Card>
+
+        {/* Résumé du mois */}
+        {selectedSalarie && semainesTriees.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-blue-500" />
+                <span className="text-xs text-gray-500">Heures totales</span>
+              </div>
+              <div className="text-2xl font-bold text-gray-900">{totalsMois.totalHeures.toFixed(1)}h</div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp className="w-4 h-4 text-green-500" />
+                <span className="text-xs text-gray-500">Heures sup</span>
+              </div>
+              <div className="text-2xl font-bold text-green-600">{totalsMois.totalSup.toFixed(1)}h</div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingDown className="w-4 h-4 text-red-500" />
+                <span className="text-xs text-gray-500">Heures dues</span>
+              </div>
+              <div className="text-2xl font-bold text-red-600">{totalsMois.totalDues.toFixed(1)}h</div>
+            </Card>
+            <Card className="p-4 bg-amber-50 border-amber-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar className="w-4 h-4 text-amber-600" />
+                <span className="text-xs text-gray-500">Congés payés</span>
+              </div>
+              <div className="text-2xl font-bold text-amber-600">{totalsMois.totalCP.toFixed(1)}h</div>
+            </Card>
+            <Card className="p-4 bg-blue-50 border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4 text-blue-600" />
+                <span className="text-xs text-gray-500">Maladie</span>
+              </div>
+              <div className="text-2xl font-bold text-blue-600">{totalsMois.totalMaladie.toFixed(1)}h</div>
+            </Card>
+            <Card className="p-4 bg-indigo-50 border-indigo-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Info className="w-4 h-4 text-indigo-600" />
+                <span className="text-xs text-gray-500">Déclarées</span>
+              </div>
+              <div className="text-2xl font-bold text-indigo-600">{totalsMois.totalDeclarees.toFixed(1)}h</div>
+            </Card>
+          </div>
+        )}
       </div>
 
-      {/* Mois et année */}
-      <div className="flex items-center gap-2 text-xl font-semibold text-gray-800">
-        <Calendar className="w-6 h-6" />
-        <span>{format(currentDate, 'MMMM yyyy', { locale: fr })}</span>
-      </div>
-
-      {/* Tableau des semaines */}
+      {/* Vue des semaines */}
       {!selectedSalarie ? (
-        <Card className="p-8 text-center">
-          <p className="text-gray-500">Sélectionnez un salarié pour afficher ses pointages</p>
+        <Card className="p-12 text-center">
+          <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-lg text-gray-500 mb-2">Sélectionnez un salarié</p>
+          <p className="text-sm text-gray-400">Choisissez un salarié dans le menu déroulant pour afficher ses pointages</p>
         </Card>
       ) : semainesTriees.length === 0 ? (
-        <Card className="p-8 text-center">
-          <p className="text-gray-500">Aucune donnée disponible pour ce mois</p>
+        <Card className="p-12 text-center">
+          <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <p className="text-lg text-gray-500 mb-2">Aucune donnée disponible</p>
+          <p className="text-sm text-gray-400">Aucun pointage trouvé pour ce mois</p>
         </Card>
+      ) : viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {semainesTriees.map((semaineData) => {
+            const calculs = calculateWeekData(semaineData);
+            const { year, week, salarie } = semaineData;
+            const monday = getMondayOfWeek(year, week);
+            const sunday = addDays(monday, 6);
+            const weekKey = `${year}-${week}`;
+            const isExpanded = expandedWeek === weekKey;
+            const hasIssues = calculs.heuresDues > 0 || calculs.soldeADeclarer > 0;
+
+            return (
+              <Card
+                key={weekKey}
+                className={clsx(
+                  'p-5 transition-all hover:shadow-lg cursor-pointer',
+                  isExpanded && 'ring-2 ring-primary-500',
+                  hasIssues && 'border-l-4 border-l-amber-400'
+                )}
+                onClick={() => setExpandedWeek(isExpanded ? null : weekKey)}
+              >
+                {/* En-tête de la semaine */}
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-10 h-10 rounded-lg bg-primary-100 flex items-center justify-center">
+                        <span className="text-sm font-bold text-primary-700">S{week}</span>
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900">
+                          Semaine {week} - {year}
+                        </h3>
+                        <p className="text-xs text-gray-500">
+                          {format(monday, 'dd MMM', { locale: fr })} - {format(sunday, 'dd MMM yyyy', { locale: fr })}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {calculs.heuresDues > 0 && (
+                      <Badge variant="danger" className="text-xs">
+                        <AlertCircle className="w-3 h-3" />
+                        {calculs.heuresDues.toFixed(1)}h dues
+                      </Badge>
+                    )}
+                    {calculs.heuresSup > 0 && (
+                      <Badge variant="success" className="text-xs">
+                        <TrendingUp className="w-3 h-3" />
+                        +{calculs.heuresSup.toFixed(1)}h
+                      </Badge>
+                    )}
+                    {semaineData.validation?.status === 'Valide' && (
+                      <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    )}
+                    {semaineData.validation?.status === 'Soumis' && (
+                      <Clock className="w-5 h-5 text-amber-500" />
+                    )}
+                  </div>
+                </div>
+
+                {/* Résumé principal */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="text-center p-3 bg-blue-50 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Total</div>
+                    <div className="text-xl font-bold text-blue-700">{calculs.totalSemaine.toFixed(1)}h</div>
+                  </div>
+                  <div className="text-center p-3 bg-green-50 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Normales</div>
+                    <div className="text-xl font-bold text-green-700">{calculs.heuresNormales.toFixed(1)}h</div>
+                  </div>
+                  <div className="text-center p-3 bg-indigo-50 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Déclarées</div>
+                    <div className="text-xl font-bold text-indigo-700">{calculs.heuresDeclarees.toFixed(1)}h</div>
+                  </div>
+                </div>
+
+                {/* Détails des jours (toujours visibles) */}
+                <div className="grid grid-cols-7 gap-1 mb-4">
+                  {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((jour, idx) => {
+                    const heures = Object.values(calculs.heuresParJour)[idx];
+                    return (
+                      <div key={jour} className="text-center">
+                        <div className="text-xs text-gray-500 mb-1">{jour}</div>
+                        <div className={clsx(
+                          'text-sm font-semibold p-2 rounded',
+                          heures > 0 ? 'bg-primary-100 text-primary-700' : 'bg-gray-50 text-gray-400'
+                        )}>
+                          {heures.toFixed(1)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Détails expandables */}
+                {isExpanded && (
+                  <div className="mt-4 pt-4 border-t border-gray-200 space-y-3 transition-all duration-300">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 bg-amber-50 rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Congés payés</div>
+                        <div className="text-lg font-semibold text-amber-700">
+                          {calculs.joursCP > 0 ? `${calculs.joursCP}j (${calculs.heuresCP}h)` : '0'}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-blue-50 rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Maladie</div>
+                        <div className="text-lg font-semibold text-blue-700">
+                          {calculs.joursMaladie > 0 ? `${calculs.joursMaladie}j (${calculs.heuresMaladie}h)` : '0'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 bg-red-50 rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Heures dues</div>
+                        <div className="text-lg font-semibold text-red-700">
+                          {calculs.heuresDues > 0 ? `-${calculs.heuresDues.toFixed(1)}h` : '0h'}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-orange-50 rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Solde à déclarer</div>
+                        <div className={clsx(
+                          'text-lg font-semibold',
+                          calculs.soldeADeclarer > 0 ? 'text-orange-700' : 'text-gray-600'
+                        )}>
+                          {calculs.soldeADeclarer > 0 ? `+${calculs.soldeADeclarer.toFixed(1)}h` : '0h'}
+                        </div>
+                      </div>
+                    </div>
+                    {semaineData.validation && (
+                      <div className="p-3 bg-gray-50 rounded-lg">
+                        <div className="text-xs text-gray-500 mb-1">Statut</div>
+                        <Badge variant={
+                          semaineData.validation.status === 'Valide' ? 'success' :
+                          semaineData.validation.status === 'Soumis' ? 'info' :
+                          semaineData.validation.status === 'Rejete' ? 'danger' : 'default'
+                        }>
+                          {semaineData.validation.status}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Indicateur d'expansion */}
+                <div className="mt-3 pt-3 border-t border-gray-100 text-center">
+                  <span className="text-xs text-gray-400">
+                    {isExpanded ? 'Cliquer pour réduire' : 'Cliquer pour voir les détails'}
+                  </span>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -322,21 +615,20 @@ export const CalendrierViewPage = () => {
                   <th className="px-3 py-3 text-center font-semibold text-gray-700 border-r">V</th>
                   <th className="px-3 py-3 text-center font-semibold text-gray-700 border-r">S</th>
                   <th className="px-3 py-3 text-center font-semibold text-gray-700 border-r">D</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Total Heures normales</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Total Heures supplémentaires</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Total heure semaine</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Total</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Normales</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Sup</th>
                   <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">CP</th>
                   <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Maladie</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Total semaine</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Heures dues</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700 bg-blue-50 border-r">Heures déclarées</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700">Solde à déclarer</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700 border-r">Dues</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700 bg-blue-50 border-r">Déclarées</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700">Solde</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {semainesTriees.map((semaineData) => {
                   const calculs = calculateWeekData(semaineData);
-                  const { year, week, salarie } = semaineData;
+                  const { year, week } = semaineData;
                   const monday = getMondayOfWeek(year, week);
                   const sunday = addDays(monday, 6);
 
@@ -355,16 +647,15 @@ export const CalendrierViewPage = () => {
                       <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.vendredi.toFixed(1) || '0'}</td>
                       <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.samedi.toFixed(1) || '0'}</td>
                       <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.dimanche.toFixed(1) || '0'}</td>
+                      <td className="px-4 py-3 text-right font-medium border-r">{calculs.totalSemaine.toFixed(1)}</td>
                       <td className="px-4 py-3 text-right font-medium border-r">{calculs.heuresNormales.toFixed(1)}</td>
                       <td className="px-4 py-3 text-right font-medium border-r">{calculs.heuresSup.toFixed(1)}</td>
-                      <td className="px-4 py-3 text-right font-medium border-r">{calculs.totalSemaine.toFixed(1)}</td>
                       <td className="px-4 py-3 text-right border-r">
-                        {calculs.joursCP > 0 ? `${calculs.joursCP}j (${calculs.heuresCP}h)` : '-'}
+                        {calculs.joursCP > 0 ? `${calculs.joursCP}j` : '-'}
                       </td>
                       <td className="px-4 py-3 text-right border-r">
-                        {calculs.joursMaladie > 0 ? `${calculs.joursMaladie}j (${calculs.heuresMaladie}h)` : '-'}
+                        {calculs.joursMaladie > 0 ? `${calculs.joursMaladie}j` : '-'}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium border-r">{calculs.totalSemaine.toFixed(1)}</td>
                       <td className="px-4 py-3 text-right font-medium border-r">
                         <span className={calculs.heuresDues > 0 ? 'text-red-600' : 'text-gray-600'}>
                           {calculs.heuresDues > 0 ? `-${calculs.heuresDues.toFixed(1)}` : '0'}
@@ -374,8 +665,8 @@ export const CalendrierViewPage = () => {
                         {calculs.heuresDeclarees.toFixed(1)}
                       </td>
                       <td className="px-4 py-3 text-right font-medium">
-                        <span className={calculs.soldeADeclarer > 0 ? 'text-orange-600' : calculs.soldeADeclarer < 0 ? 'text-red-600' : 'text-gray-600'}>
-                          {calculs.soldeADeclarer > 0 ? `+${calculs.soldeADeclarer.toFixed(1)}` : calculs.soldeADeclarer < 0 ? calculs.soldeADeclarer.toFixed(1) : '0'}
+                        <span className={calculs.soldeADeclarer > 0 ? 'text-orange-600' : 'text-gray-600'}>
+                          {calculs.soldeADeclarer > 0 ? `+${calculs.soldeADeclarer.toFixed(1)}` : '0'}
                         </span>
                       </td>
                     </tr>

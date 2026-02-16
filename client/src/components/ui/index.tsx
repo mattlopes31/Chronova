@@ -144,13 +144,13 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
 Checkbox.displayName = 'Checkbox';
 
 // ============ CARD ============
-interface CardProps {
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   className?: string;
   hover?: boolean;
 }
 
-export const Card = ({ children, className, hover = false }: CardProps) => {
+export const Card = ({ children, className, hover = false, ...props }: CardProps) => {
   return (
     <div
       className={clsx(
@@ -158,6 +158,7 @@ export const Card = ({ children, className, hover = false }: CardProps) => {
         hover && 'hover:shadow-md hover:border-gray-300 transition-all duration-200',
         className
       )}
+      {...props}
     >
       {children}
     </div>

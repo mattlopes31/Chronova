@@ -8,7 +8,6 @@ import {
   FolderKanban,
   Users,
   Building2,
-  CalendarOff,
   Calendar,
   CalendarDays,
   Settings,
@@ -63,14 +62,12 @@ export const Layout = ({ children }: LayoutProps) => {
 
   const employeeNavigation = [
     { name: 'Pointage', href: '/pointage', icon: Clock },
-    { name: 'Mes congés', href: '/conges', icon: CalendarOff },
   ];
 
   const managerNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Pointage', href: '/pointage', icon: Clock },
     { name: 'Validations', href: '/validations', icon: CheckCircle },
-    { name: 'Congés', href: '/conges', icon: CalendarOff },
   ];
 
   const adminNavigation = [
@@ -82,7 +79,6 @@ export const Layout = ({ children }: LayoutProps) => {
     { name: 'Projets', href: '/projets', icon: FolderKanban },
     { name: 'Clients', href: '/clients', icon: Building2 },
     { name: 'Salariés', href: '/salaries', icon: Users },
-    { name: 'Congés', href: '/conges', icon: CalendarOff },
   ];
 
   const navigation = isAdmin ? adminNavigation : isManager ? managerNavigation : employeeNavigation;

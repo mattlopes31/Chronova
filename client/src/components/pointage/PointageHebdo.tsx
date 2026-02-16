@@ -377,11 +377,28 @@ export const PointageHebdo = () => {
     
     console.log('Ajout ligne avec tâche:', { projet, tache_type_id: selectedTacheTypeId, affectation });
     
+    // Déterminer l'objet tache_type à utiliser
+    let tacheTypeObj = null;
+    if (affectation?.tache_projet?.nom_tache) {
+      // Tâche personnalisée avec nom_tache - créer un objet avec les infos nécessaires
+      tacheTypeObj = {
+        tache_type: affectation.tache_projet.nom_tache,
+        code: affectation.tache_projet.code || affectation.tache_projet.tache_type?.code,
+        couleur: affectation.tache_projet.couleur || affectation.tache_projet.tache_type?.couleur || '#3B82F6'
+      };
+    } else if (affectation?.tache_projet?.tache_type) {
+      // Tâche personnalisée avec tache_type
+      tacheTypeObj = affectation.tache_projet.tache_type;
+    } else if (affectation?.tache_type) {
+      // Tâche globale
+      tacheTypeObj = affectation.tache_type;
+    }
+    
     setLignes([...lignes, {
       projet_id: selectedProjetId,
       projet,
       tache_type_id: selectedTacheTypeId,
-      tache_type: affectation?.tache_type || affectation?.tache_projet?.tache_type,
+      tache_type: tacheTypeObj,
       heures: { lundi: 0, mardi: 0, mercredi: 0, jeudi: 0, vendredi: 0, samedi: 0, dimanche: 0 },
       isNew: true,
     }]);
@@ -849,11 +866,19 @@ export const PointageHebdo = () => {
                         <span 
                           className="px-2 py-0.5 rounded-full text-xs font-medium"
                           style={{
-                            backgroundColor: ligne.tache_type.couleur ? `${ligne.tache_type.couleur}20` : '#3B82F620',
-                            color: ligne.tache_type.couleur || '#3B82F6'
+                            backgroundColor: (typeof ligne.tache_type === 'object' && ligne.tache_type?.couleur) ? `${ligne.tache_type.couleur}20` : '#3B82F620',
+                            color: (typeof ligne.tache_type === 'object' && ligne.tache_type?.couleur) ? ligne.tache_type.couleur : '#3B82F6'
                           }}
                         >
-                          {ligne.tache_type.tache_type || ligne.tache_type}
+                          {(() => {
+                            if (typeof ligne.tache_type === 'string') {
+                              return ligne.tache_type;
+                            }
+                            if (typeof ligne.tache_type === 'object') {
+                              return ligne.tache_type?.tache_type || ligne.tache_type?.nom_tache || 'Tâche inconnue';
+                            }
+                            return 'Tâche';
+                          })()}
                         </span>
                       )}
                     </div>
@@ -1111,10 +1136,25 @@ export const PointageHebdo = () => {
                 { value: '', label: 'Sélectionner une tâche' },
                 ...(projetsDisponibles
                   .find((p: any) => p.id?.toString() === selectedProjetId)
-                  ?.affectations?.map((a: any) => ({
-                    value: a.tache_type_id?.toString(),
-                    label: a.tache_type?.tache_type || a.tache_projet?.tache_type?.tache_type || 'Tâche',
-                  })) || []),
+                  ?.affectations?.map((a: any) => {
+                    // Déterminer le nom de la tâche
+                    let tacheNom = 'Tâche';
+                    if (a.tache_projet?.nom_tache) {
+                      // Tâche personnalisée avec nom_tache
+                      tacheNom = a.tache_projet.nom_tache;
+                    } else if (a.tache_projet?.tache_type?.tache_type) {
+                      // Tâche personnalisée avec tache_type
+                      tacheNom = a.tache_projet.tache_type.tache_type;
+                    } else if (a.tache_type?.tache_type) {
+                      // Tâche globale
+                      tacheNom = a.tache_type.tache_type;
+                    }
+                    
+                    return {
+                      value: a.tache_type_id?.toString(),
+                      label: tacheNom,
+                    };
+                  }) || []),
               ]}
             />
           )}
