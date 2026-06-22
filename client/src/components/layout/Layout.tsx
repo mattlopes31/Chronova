@@ -11,6 +11,7 @@ import {
   Calendar,
   CalendarDays,
   Flag,
+  TrendingUp,
   Settings,
   LogOut,
   Menu,
@@ -47,11 +48,6 @@ export const Layout = ({ children }: LayoutProps) => {
 
   const unreadCount = notifications.filter((n: any) => !n.lu).length;
   
-  // Debug: afficher les notifications dans la console
-  if (notifications.length > 0) {
-    console.log('Notifications reçues:', notifications);
-  }
-
   // Marquer une notification comme lue
   const markAsReadMutation = useMutation({
     mutationFn: (id: string) => dashboardApi.marquerNotificationLue(id),
@@ -79,11 +75,13 @@ export const Layout = ({ children }: LayoutProps) => {
 
   const employeeNavigation = [
     { name: 'Pointage', href: '/pointage', icon: Clock },
+    { name: 'Mon suivi', href: '/mon-suivi', icon: TrendingUp },
   ];
 
   const managerNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Pointage', href: '/pointage', icon: Clock },
+    { name: 'Mon suivi', href: '/mon-suivi', icon: TrendingUp },
     { name: 'Validations', href: '/validations', icon: CheckCircle },
   ];
 

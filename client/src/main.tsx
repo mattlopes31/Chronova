@@ -17,6 +17,7 @@ import { MesCongesPage } from '@/pages/MesCongesPage';
 import { CalendrierPage } from '@/pages/CalendrierPage';
 import { CalendrierViewPage } from '@/pages/CalendrierViewPage';
 import { JoursFeriesPage } from '@/pages/JoursFeriesPage';
+import { MonSuiviPage } from '@/pages/MonSuiviPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -164,6 +165,15 @@ const App = () => {
           element={
             <ProtectedRoute noAdmin>
               <MesCongesPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* Mon Suivi mensuel - accessible à tous sauf Admin */}
+        <Route
+          path="/mon-suivi"
+          element={
+            <ProtectedRoute noAdmin>
+              <MonSuiviPage />
             </ProtectedRoute>
           }
         />

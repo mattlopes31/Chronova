@@ -194,19 +194,11 @@ export const ProjetsPage = () => {
   // Mutations
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      console.log('=== createMutation ===');
-      console.log('Data reçue dans mutation:', data);
-      
-      // Construire les données à envoyer avec les heures estimées
-      // data.taches contient les objets {tache_type_id, heures_prevues}
       const dataToSend = {
         ...data.projet,
-        taches: data.taches || data.projet.taches, // Utiliser data.taches (avec heures) si disponible
+        taches: data.taches || data.projet.taches,
       };
-      console.log('Data à envoyer à l\'API:', dataToSend);
-      
       const projet = await projetsApi.create(dataToSend);
-      console.log('Réponse API:', projet);
       return projet;
     },
     onSuccess: () => {
@@ -263,10 +255,6 @@ export const ProjetsPage = () => {
       const affectationIdsToRemove: string[] = Array.isArray(data?.affectation_ids_to_remove)
         ? data.affectation_ids_to_remove
         : [];
-
-      if (tacheIdsToAdd.length === 0 && affectationIdsToRemove.length === 0) {
-        throw new Error('Aucune modification à appliquer');
-      }
 
       const deleteResults = await Promise.allSettled(
         affectationIdsToRemove.map((affectationId) => projetsApi.deleteAffectation(projetId, affectationId))
@@ -481,12 +469,16 @@ export const ProjetsPage = () => {
     nom_tache: string;
     code?: string;
     heures_prevues: number;
-    couleur?: string; // optionnel (mais on génère une couleur unique automatiquement)
+    couleur?: string;
   }) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const used = getUsedColors();
-    const couleur = generateUniqueRandomColor(used);
-    // Réserver cette couleur pour les prochaines tâches créées dans ce modal
+    let couleur: string;
+    if (data.couleur) {
+      couleur = data.couleur;
+    } else {
+      const used = getUsedColors();
+      couleur = generateUniqueRandomColor(used);
+    }
     usedColorsRef.current.add(couleur.toUpperCase());
 
     const nouvelleTache = {
@@ -584,7 +576,6 @@ export const ProjetsPage = () => {
           nom_tache: nom || code,
           code,
           heures_prevues: heures,
-          couleur: '#10B981',
         });
         added += 1;
       }
@@ -680,7 +671,6 @@ export const ProjetsPage = () => {
       const couleurTache = t.couleur || t.tache_type?.couleur || '#10B981';
       couleursMap[t.id] = couleurTache;
       codesMap[t.id] = t.code || '';
-      console.log(`Initialisation couleur pour tâche ${t.id} (${t.nom_tache}): ${couleurTache}`);
     });
     const nomsMap: Record<string, string> = {};
     tachesProjetData.forEach((t: any) => {
@@ -727,11 +717,9 @@ export const ProjetsPage = () => {
   };
 
   const toggleTache = (tacheId: string) => {
-    console.log('Toggle tache ID:', tacheId, 'type:', typeof tacheId);
     setSelectedTaches((prev) => {
       const newTaches = prev.includes(tacheId) ? prev.filter((t) => t !== tacheId) : [...prev, tacheId];
-      console.log('Selected taches après toggle:', newTaches);
-      
+
       // Si on désélectionne une tâche, retirer ses heures et nom du state
       if (prev.includes(tacheId) && !newTaches.includes(tacheId)) {
         setTachesHeuresModal((prevHeures) => {
@@ -792,10 +780,6 @@ export const ProjetsPage = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    console.log('=== handleSubmit ===');
-    console.log('Form:', form);
-    console.log('Selected taches:', selectedTaches);
 
     if (!form.code_projet || !form.nom) {
       toast.error('Veuillez remplir les champs obligatoires');
@@ -864,8 +848,6 @@ export const ProjetsPage = () => {
         }
         // Pour les tâches avec tache_type_id sans modification, on n'envoie pas de couleur (elle viendra du tache_type)
         
-        console.log(`Envoi tâche ${tid}: couleur modifiée=${couleurModifiee}, couleur originale=${couleurOriginale}, tache_type_id=${tacheProjet.tache_type_id}, couleur envoyée=${tacheData.couleur}, code envoyé=${tacheData.code}`);
-        
         return tacheData;
       } else {
         // Fallback pour compatibilité
@@ -890,12 +872,6 @@ export const ProjetsPage = () => {
       actif: form.actif,
       taches: tachesData, // Inclure les tâches avec heures si édition, sinon juste les IDs
     };
-
-    console.log('Tâches sélectionnées (strings):', selectedTaches);
-    console.log('Tâches avec heures:', tachesData);
-
-    console.log('Projet data:', projetData);
-    console.log('Taches à envoyer:', tachesData);
 
     if (selectedProjet) {
       updateMutation.mutate({ id: selectedProjet.id, data: projetData });
@@ -962,6 +938,14 @@ export const ProjetsPage = () => {
       })
       .map((aff: any) => String(aff.id))
       .filter(Boolean);
+
+    if (tacheIdsToAdd.length === 0 && affectationIdsToRemove.length === 0) {
+      toast.success('Aucune modification à effectuer');
+      setIsAssignModalOpen(false);
+      setAssignSalarie('');
+      setAssignTaches([]);
+      return;
+    }
 
     assignMutation.mutate({
       projetId: selectedProjet.id,
@@ -1448,15 +1432,21 @@ export const ProjetsPage = () => {
                                 </div>
                               </div>
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   if (confirm(`Êtes-vous sûr de vouloir supprimer toutes les affectations de ${group.salarie?.prenom} ${group.salarie?.nom} ?`)) {
-                                    // Supprimer toutes les affectations de ce salarié
-                                    group.affectations.forEach((aff: any) => {
-                                      deleteAffectationMutation.mutate({
-                                        projetId: String(projet.id),
-                                        affectationId: String(aff.id),
-                                      });
-                                    });
+                                    const results = await Promise.allSettled(
+                                      group.affectations.map((aff: any) =>
+                                        projetsApi.deleteAffectation(String(projet.id), String(aff.id))
+                                      )
+                                    );
+                                    queryClient.invalidateQueries({ queryKey: ['projets'] });
+                                    const ok = results.filter((r) => r.status === 'fulfilled').length;
+                                    const fail = results.length - ok;
+                                    if (fail === 0) {
+                                      toast.success(`${ok} affectation${ok > 1 ? 's' : ''} supprimée${ok > 1 ? 's' : ''}`);
+                                    } else {
+                                      toast.error(`${ok} supprimée${ok > 1 ? 's' : ''}, ${fail} erreur${fail > 1 ? 's' : ''}`);
+                                    }
                                   }
                                 }}
                                 className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 p-1.5 rounded hover:bg-red-50 text-red-600 transition-opacity"
