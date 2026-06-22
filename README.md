@@ -1,10 +1,10 @@
-# ⏱️ Chronova
+# Chronova
 
 _Application de gestion du temps, des projets et des salariés pour PME et équipes techniques._
 
 ---
 
-## 📌 Aperçu
+##  Aperçu
 
 Chronova permet aux salariés de pointer leurs heures sur des projets et des tâches précises, et aux managers / administrateurs de suivre l'activité en temps réel :
 
@@ -15,9 +15,9 @@ Chronova permet aux salariés de pointer leurs heures sur des projets et des tâ
 
 ---
 
-## ✨ Fonctionnalités principales
+##  Fonctionnalités principales
 
-### 👤 Côté salarié
+###  Côté salarié
 
 - Connexion sécurisée (email + mot de passe)
 - Page **Pointage** avec vue hebdomadaire (par jour, par projet, par tâche)
@@ -25,7 +25,7 @@ Chronova permet aux salariés de pointer leurs heures sur des projets et des tâ
 - Récapitulatif des heures, heures supplémentaires et heures dues
 - Vue **Calendrier** et **Calendrier view** pour visualiser les semaines et les heures déclarées
 
-### 👑 Côté manager / admin
+### Côté manager / admin
 
 - Gestion des **salariés** : création, édition, désactivation / réactivation
 - Gestion des **clients** et **projets**
@@ -35,7 +35,7 @@ Chronova permet aux salariés de pointer leurs heures sur des projets et des tâ
 
 ---
 
-## 🧱 Stack technique
+## Stack technique
 
 ### Frontend (`client/`)
 
@@ -62,7 +62,7 @@ Chronova permet aux salariés de pointer leurs heures sur des projets et des tâ
 
 ---
 
-## 🗂️ Structure du projet
+## Structure du projet
 
 ```bash
 Chronova/
@@ -92,7 +92,7 @@ Chronova/
 
 ---
 
-## 🚀 Démarrage rapide
+##  Démarrage rapide
 
 ### 1. Prérequis
 
@@ -148,7 +148,7 @@ Par défaut, Vite démarre sur `http://localhost:5173`.
 
 ---
 
-## ⚙️ Configuration
+##  Configuration
 
 ### Variables d'environnement serveur (`server/.env`)
 
@@ -169,7 +169,7 @@ VITE_API_URL="http://localhost:4000/api"
 
 ---
 
-## 🧭 Pages principales de l’interface
+## Pages principales de l’interface
 
 - `/login` : connexion
 - `/dashboard` : hub de navigation (cartes cliquables vers les autres pages)
@@ -183,7 +183,7 @@ VITE_API_URL="http://localhost:4000/api"
 
 ---
 
-## 🧪 Scripts utiles
+##  Scripts utiles
 
 ### Client (`client/`)
 
@@ -206,7 +206,7 @@ npm run db:seed    # Seed de la base
 
 ---
 
-## 🤝 Contribution
+##  Contribution
 
 1. Forker le dépôt
 2. Créer une branche : `git checkout -b feature/ma-fonctionnalite`
@@ -218,7 +218,7 @@ Merci de respecter le style de code existant (TypeScript, formatage automatique,
 
 ---
 
-## 📄 Licence
+## Licence
 
 Ce projet est distribué sous licence **MIT**. Voir le fichier `LICENSE`.
 
