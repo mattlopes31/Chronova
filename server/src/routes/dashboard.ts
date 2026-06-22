@@ -340,6 +340,23 @@ router.get('/notifications', authMiddleware, async (req: AuthRequest, res: Respo
   }
 });
 
+// DELETE /api/dashboard/notifications/lues - Supprimer les notifications déjà lues
+router.delete('/notifications/lues', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await prisma.notification.deleteMany({
+      where: {
+        salarie_id: req.user!.id,
+        lu: true,
+      },
+    });
+
+    res.json({ message: 'Notifications lues supprimées', count: result.count });
+  } catch (error) {
+    console.error('Erreur suppression notifications lues:', error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 // PUT /api/dashboard/notifications/:id/lue - Marquer comme lue
 router.put('/notifications/:id/lue', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {

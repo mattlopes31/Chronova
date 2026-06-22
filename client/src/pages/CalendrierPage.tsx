@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
-import { pointagesApi, salariesApi } from '@/services/api';
+import { pointagesApi, salariesApi, congesApi } from '@/services/api';
 import { Card, Spinner } from '@/components/ui';
 import { getWeek, getYear, format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, subMonths, eachDayOfInterval, isSameMonth, isSameDay, addDays, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -84,7 +84,36 @@ export const CalendrierPage = () => {
       return { year, week };
     });
   }, [calendarDays]);
-  
+
+  const yearsInGrid = useMemo(() => {
+    const s = new Set<number>();
+    calendarDays.forEach((d) => s.add(getYear(d)));
+    return [...s].sort();
+  }, [calendarDays]);
+
+  const { data: joursFeriesCal = [] } = useQuery({
+    queryKey: ['jours-feries-calendrier', yearsInGrid.join(',')],
+    queryFn: async () => {
+      const lists = await Promise.all(yearsInGrid.map((y) => congesApi.getJoursFeries(y)));
+      return lists.flat();
+    },
+    enabled: yearsInGrid.length > 0,
+  });
+
+  const ferieDates = useMemo(
+    () => new Set(joursFeriesCal.map((j) => String(j.date).split('T')[0])),
+    [joursFeriesCal]
+  );
+
+  const ferieLibelleByDate = useMemo(() => {
+    const m = new Map<string, string>();
+    joursFeriesCal.forEach((j) => {
+      const dk = String(j.date).split('T')[0];
+      if (dk && j.libelle) m.set(dk, j.libelle);
+    });
+    return m;
+  }, [joursFeriesCal]);
+
   // Récupérer tous les pointages du mois
   const { data: pointages = [], isLoading: isLoadingPointages } = useQuery({
     queryKey: ['pointages-mois', currentYear, currentMonth],
@@ -112,24 +141,39 @@ export const CalendrierPage = () => {
   // Organiser les pointages par jour
   const pointagesByDay = useMemo(() => {
     const map = new Map<string, Map<string, number>>(); // date -> salarieId -> heures
+
+    const toNumber = (v: any): number => {
+      if (v === null || v === undefined || v === '') return 0;
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      if (typeof v === 'string') {
+        const n = parseFloat(v.replace(',', '.'));
+        return isNaN(n) ? 0 : n;
+      }
+      const n = Number(v);
+      return isNaN(n) ? 0 : n;
+    };
     
     pointages.forEach((pointage: SalariePointage) => {
       const salarieId = pointage.salarie_id || '';
       
       // Pour chaque jour de la semaine du pointage
       const jours = [
-        { key: 'lundi', date: pointage.date_lundi, heures: pointage.heure_lundi || 0 },
-        { key: 'mardi', date: '', heures: pointage.heure_mardi || 0 },
-        { key: 'mercredi', date: '', heures: pointage.heure_mercredi || 0 },
-        { key: 'jeudi', date: '', heures: pointage.heure_jeudi || 0 },
-        { key: 'vendredi', date: '', heures: pointage.heure_vendredi || 0 },
-        { key: 'samedi', date: '', heures: pointage.heure_samedi || 0 },
-        { key: 'dimanche', date: '', heures: pointage.heure_dimanche || 0 },
+        { key: 'lundi', date: pointage.date_lundi, heures: toNumber(pointage.heure_lundi) },
+        { key: 'mardi', date: '', heures: toNumber(pointage.heure_mardi) },
+        { key: 'mercredi', date: '', heures: toNumber(pointage.heure_mercredi) },
+        { key: 'jeudi', date: '', heures: toNumber(pointage.heure_jeudi) },
+        { key: 'vendredi', date: '', heures: toNumber(pointage.heure_vendredi) },
+        { key: 'samedi', date: '', heures: toNumber(pointage.heure_samedi) },
+        { key: 'dimanche', date: '', heures: toNumber(pointage.heure_dimanche) },
       ];
       
       // Calculer les dates de chaque jour à partir du lundi
       if (pointage.date_lundi) {
-        const lundi = parseISO(pointage.date_lundi);
+        // IMPORTANT: `date_lundi` vient souvent d’un champ DATE sérialisé (ex: "2026-03-09T00:00:00.000Z").
+        // `parseISO()` avec le "Z" peut reculer d'un jour en timezone locale -> décalage d'affichage.
+        // On force la clé civile en prenant uniquement "YYYY-MM-DD".
+        const lundiStr = String(pointage.date_lundi).split('T')[0];
+        const lundi = parseISO(lundiStr);
         jours.forEach((jour, index) => {
           const date = addDays(lundi, index);
           const dateKey = format(date, 'yyyy-MM-dd');
@@ -140,8 +184,8 @@ export const CalendrierPage = () => {
             }
             
             const dayMap = map.get(dateKey)!;
-            const currentHeures = dayMap.get(salarieId) || 0;
-            dayMap.set(salarieId, currentHeures + jour.heures);
+            const currentHeures = toNumber(dayMap.get(salarieId) || 0);
+            dayMap.set(salarieId, currentHeures + toNumber(jour.heures));
           }
         });
       }
@@ -264,14 +308,18 @@ export const CalendrierPage = () => {
                     const isCurrentMonth = isSameMonth(day, currentDate);
                     const isToday = isSameDay(day, new Date());
                     const pointagesJour = getPointagesForDay(day);
-                    
+                    const dateKey = format(day, 'yyyy-MM-dd');
+                    const isFerie = ferieDates.has(dateKey);
+                    const libelleFerie = ferieLibelleByDate.get(dateKey);
+
                     return (
                       <div
                         key={`${weekIndex}-${dayIndex}`}
                         className={clsx(
                           'min-h-[120px] p-2 bg-white',
                           !isCurrentMonth && 'bg-gray-50',
-                          isToday && 'bg-blue-50 border-2 border-blue-400'
+                          isToday && 'bg-blue-50 border-2 border-blue-400',
+                          isFerie && 'bg-red-50 ring-1 ring-inset ring-red-200'
                         )}
                       >
                         {/* Numéro du jour */}
@@ -279,11 +327,17 @@ export const CalendrierPage = () => {
                           className={clsx(
                             'text-sm font-medium mb-1',
                             isCurrentMonth ? 'text-gray-900' : 'text-gray-400',
-                            isToday && 'text-blue-600 font-bold'
+                            isToday && 'text-blue-600 font-bold',
+                            isFerie && 'text-red-700'
                           )}
                         >
                           {format(day, 'd')}
                         </div>
+                        {isFerie && libelleFerie && (
+                          <div className="text-[10px] text-red-700 font-medium truncate mb-1" title={libelleFerie}>
+                            {libelleFerie}
+                          </div>
+                        )}
                         
                         {/* Liste des personnes qui ont pointé */}
                         <div className="space-y-1">

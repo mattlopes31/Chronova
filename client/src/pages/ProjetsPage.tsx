@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
@@ -26,6 +26,7 @@ import type { Projet, Client, Salarie } from '@/types';
 import { Card, Button, Badge, Modal, Input, Select, Checkbox, Spinner, EmptyState } from '@/components/ui';
 import { format, parseISO } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { sortTachesByCode } from '@/utils/taches';
 
 interface ProjetForm {
   id?: number;
@@ -56,38 +57,6 @@ const initialForm: ProjetForm = {
   actif: true,
 };
 
-// Fonction de tri pour les tâches par code (numériques en ordre croissant, puis alphabétiques)
-const sortTachesByCode = (a: any, b: any) => {
-  const codeA = (a.code || a.tache_type?.code || '').trim();
-  const codeB = (b.code || b.tache_type?.code || '').trim();
-  
-  // Si aucun code, utiliser le nom
-  if (!codeA && !codeB) {
-    const nomA = (a.nom_tache || a.tache_type?.tache_type || a.nom || '').toLowerCase();
-    const nomB = (b.nom_tache || b.tache_type?.tache_type || b.nom || '').toLowerCase();
-    return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
-  }
-  
-  if (!codeA) return 1; // Les tâches sans code à la fin
-  if (!codeB) return -1;
-  
-  // Vérifier si les codes sont numériques
-  const isNumericA = /^\d+$/.test(codeA);
-  const isNumericB = /^\d+$/.test(codeB);
-  
-  // Si les deux sont numériques, trier par ordre croissant
-  if (isNumericA && isNumericB) {
-    return parseInt(codeA, 10) - parseInt(codeB, 10);
-  }
-  
-  // Si un seul est numérique, les numériques viennent en premier
-  if (isNumericA && !isNumericB) return -1;
-  if (!isNumericA && isNumericB) return 1;
-  
-  // Si les deux sont alphabétiques, trier par ordre alphabétique
-  return codeA.localeCompare(codeB, 'fr', { sensitivity: 'base', numeric: true });
-};
-
 export const ProjetsPage = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -97,6 +66,9 @@ export const ProjetsPage = () => {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isNewTacheModalOpen, setIsNewTacheModalOpen] = useState(false);
   const [isEditHeuresModalOpen, setIsEditHeuresModalOpen] = useState(false);
+  const [isInlineQuickEditEnabled, setIsInlineQuickEditEnabled] = useState(false);
+  const [isUnsavedWarningOpen, setIsUnsavedWarningOpen] = useState(false);
+  const [initialProjetSnapshot, setInitialProjetSnapshot] = useState('');
   const [tacheToDelete, setTacheToDelete] = useState<string | null>(null);
   const [selectedProjet, setSelectedProjet] = useState<any>(null);
   const [expandedProjet, setExpandedProjet] = useState<number | null>(null);
@@ -104,14 +76,50 @@ export const ProjetsPage = () => {
   const [selectedTaches, setSelectedTaches] = useState<string[]>([]); // IDs des tâches du projet (tache_projet.id)
   const [tachesProjet, setTachesProjet] = useState<any[]>([]); // Liste des tâches créées pour ce projet
   const [assignSalarie, setAssignSalarie] = useState<string>('');
-  const [assignTache, setAssignTache] = useState<string>('');
+  const [assignTaches, setAssignTaches] = useState<string[]>([]); // IDs des tâches du projet (tache_projet.id)
   const [newTache, setNewTache] = useState({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
+  // --- Ajouts rapides (pour créer des tâches plus vite) ---
+  const [tacheQuickHeures, setTacheQuickHeures] = useState<number>(0);
+  const [inlineTacheMode, setInlineTacheMode] = useState<'type' | 'custom'>('type');
+  const [inlineTacheTypeId, setInlineTacheTypeId] = useState<string>('');
+  const [inlineTacheHeures, setInlineTacheHeures] = useState<number>(0);
+  const [inlineCustomCode, setInlineCustomCode] = useState<string>('');
+  const [inlineCustomNom, setInlineCustomNom] = useState<string>('');
+  const [inlineCustomCouleur, setInlineCustomCouleur] = useState<string>('#10B981');
+  const [inlineCustomHeures, setInlineCustomHeures] = useState<number>(0);
+  const [bulkTachesText, setBulkTachesText] = useState<string>('');
   const [editingTache, setEditingTache] = useState<{ projetId: number; tacheId: string } | null>(null);
   const [tacheHeures, setTacheHeures] = useState<string>('');
   const [tachesHeuresModal, setTachesHeuresModal] = useState<Record<string, number>>({}); // tache_type_id -> heures_prevues
   const [tachesNomsModal, setTachesNomsModal] = useState<Record<string, string>>({}); // tache_type_id -> nouveau nom
   const [tachesCodesModal, setTachesCodesModal] = useState<Record<string, string>>({}); // tache_projet_id -> code
   const [tachesCouleursModal, setTachesCouleursModal] = useState<Record<string, string>>({}); // tache_projet_id -> couleur
+  const projetFormRef = useRef<HTMLFormElement>(null);
+  // Conserve les couleurs déjà utilisées pendant l'ouverture du modal,
+  // pour générer une couleur aléatoire unique à chaque nouvelle tâche.
+  const usedColorsRef = useRef<Set<string>>(new Set());
+
+  const getUsedColors = () => {
+    const used = new Set<string>(usedColorsRef.current);
+    return used;
+  };
+
+  const generateUniqueRandomColor = (used: Set<string>) => {
+    const toKey = (c: string) => c.trim().toUpperCase();
+    const maxAttempts = 2000;
+    for (let i = 0; i < maxAttempts; i++) {
+      const r = Math.floor(Math.random() * 256);
+      const g = Math.floor(Math.random() * 256);
+      const b = Math.floor(Math.random() * 256);
+      const color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      const key = toKey(color);
+      if (!used.has(key)) return color;
+    }
+
+    // Fallback (très rare)
+    const color = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`;
+    return color.toUpperCase();
+  };
 
   // Queries
   const { data: projets = [], isLoading } = useQuery<Projet[]>({
@@ -178,8 +186,8 @@ export const ProjetsPage = () => {
       queryClient.invalidateQueries({ queryKey: ['projets'] });
       toast.success('Affectation supprimée');
     },
-    onError: () => {
-      toast.error('Erreur lors de la suppression');
+    onError: (error: any) => {
+      toast.error(error.response?.data?.error || 'Erreur lors de la suppression');
     },
   });
 
@@ -250,14 +258,52 @@ export const ProjetsPage = () => {
   });
 
   const assignMutation = useMutation({
-    mutationFn: ({ projetId, data }: { projetId: string; data: any }) =>
-      projetsApi.addAffectation(projetId, data),
-    onSuccess: () => {
-      toast.success('Salarié assigné au projet');
+    mutationFn: async ({ projetId, data }: { projetId: string; data: any }) => {
+      const tacheIdsToAdd: string[] = Array.isArray(data?.tache_projet_ids) ? data.tache_projet_ids : [];
+      const affectationIdsToRemove: string[] = Array.isArray(data?.affectation_ids_to_remove)
+        ? data.affectation_ids_to_remove
+        : [];
+
+      if (tacheIdsToAdd.length === 0 && affectationIdsToRemove.length === 0) {
+        throw new Error('Aucune modification à appliquer');
+      }
+
+      const deleteResults = await Promise.allSettled(
+        affectationIdsToRemove.map((affectationId) => projetsApi.deleteAffectation(projetId, affectationId))
+      );
+
+      const addResults = await Promise.allSettled(
+        tacheIdsToAdd.map((tache_projet_id) =>
+          projetsApi.addAffectation(projetId, {
+            salarie_id: data.salarie_id,
+            tache_projet_id,
+            tache_type_id: data.tache_type_ids?.[String(tache_projet_id)],
+          })
+        )
+      );
+
+      const removedOk = deleteResults.filter((r) => r.status === 'fulfilled').length;
+      const removedFail = deleteResults.length - removedOk;
+      const addedOk = addResults.filter((r) => r.status === 'fulfilled').length;
+      const addedFail = addResults.length - addedOk;
+
+      return { removedOk, removedFail, addedOk, addedFail };
+    },
+    onSuccess: (res: any) => {
+      const removedOk = Number(res?.removedOk || 0);
+      const removedFail = Number(res?.removedFail || 0);
+      const addedOk = Number(res?.addedOk || 0);
+      const addedFail = Number(res?.addedFail || 0);
+
+      if (removedFail === 0 && addedFail === 0) {
+        toast.success(`Modifications appliquées (ajouts: ${addedOk}, retraits: ${removedOk})`);
+      } else {
+        toast.success(`Modifications partielles (ajouts: ${addedOk} OK, ${addedFail} erreur(s) · retraits: ${removedOk} OK, ${removedFail} erreur(s))`);
+      }
       queryClient.invalidateQueries({ queryKey: ['projets'] });
       setIsAssignModalOpen(false);
       setAssignSalarie('');
-      setAssignTache('');
+      setAssignTaches([]);
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.error || 'Erreur lors de l\'assignation');
@@ -266,15 +312,16 @@ export const ProjetsPage = () => {
 
   // Mutation pour créer une nouvelle tâche
   const createTacheMutation = useMutation({
-    mutationFn: (data: { tache_type: string; code: string; couleur: string }) =>
-      tachesApi.create(data),
+    // `tache_type` côté API = libellé; ici on stocke ça dans `newTache.nom`
+    mutationFn: (data: { nom: string; code: string; couleur: string }) =>
+      tachesApi.create({ tache_type: data.nom, code: data.code, couleur: data.couleur }),
     onSuccess: (data) => {
       toast.success('Nouvelle tâche créée');
       queryClient.invalidateQueries({ queryKey: ['tache-types'] });
       // Sélectionner automatiquement la nouvelle tâche
       setSelectedTaches((prev) => [...prev, data.id]);
       setIsNewTacheModalOpen(false);
-      setNewTache({ tache_type: '', code: '', couleur: '#10B981' });
+      setNewTache({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.error || 'Erreur lors de la création');
@@ -334,7 +381,7 @@ export const ProjetsPage = () => {
         if (tache) {
           // Initialiser avec la couleur de la tâche si elle n'est pas déjà dans le modal
           if (!tachesCouleursModal[tacheId]) {
-            nouvellesCouleurs[tacheId] = tache.couleur || '#10B981';
+            nouvellesCouleurs[tacheId] = tache.couleur || tache.tache_type?.couleur || '#10B981';
           }
           // Initialiser avec le code de la tâche si elle n'est pas déjà dans le modal
           if (tachesCodesModal[tacheId] === undefined && tache.code !== undefined) {
@@ -371,15 +418,217 @@ export const ProjetsPage = () => {
     });
 
   // Handlers
+  const buildProjetSnapshot = (
+    formState: ProjetForm,
+    selectedTachesState: string[],
+    tachesProjetState: any[],
+    tachesHeuresState: Record<string, number>,
+    tachesNomsState: Record<string, string>,
+    tachesCodesState: Record<string, string>,
+    tachesCouleursState: Record<string, string>
+  ) => {
+    const sortedObject = (obj: Record<string, any>) =>
+      Object.keys(obj)
+        .sort()
+        .reduce((acc, key) => ({ ...acc, [key]: obj[key] }), {});
+
+    const normalizedTachesProjet = tachesProjetState
+      .map((t: any) => ({
+        id: String(t.id),
+        nom_tache: t.nom_tache || '',
+        nom: t.nom || '',
+        code: t.code || '',
+        heures_prevues: Number(t.heures_prevues || 0),
+        couleur: t.couleur || '',
+        tache_type_id: t.tache_type_id ? String(t.tache_type_id) : null,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id, 'fr', { numeric: true, sensitivity: 'base' }));
+
+    return JSON.stringify({
+      form: formState,
+      selectedTaches: [...selectedTachesState].sort((a, b) =>
+        a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' })
+      ),
+      tachesProjet: normalizedTachesProjet,
+      tachesHeures: sortedObject(tachesHeuresState),
+      tachesNoms: sortedObject(tachesNomsState),
+      tachesCodes: sortedObject(tachesCodesState),
+      tachesCouleurs: sortedObject(tachesCouleursState),
+    });
+  };
+
+  const hasUnsavedChanges = isModalOpen
+    && initialProjetSnapshot !== ''
+    && buildProjetSnapshot(
+      form,
+      selectedTaches,
+      tachesProjet,
+      tachesHeuresModal,
+      tachesNomsModal,
+      tachesCodesModal,
+      tachesCouleursModal
+    ) !== initialProjetSnapshot;
+
+  const requestCloseModal = () => {
+    if (hasUnsavedChanges) {
+      setIsUnsavedWarningOpen(true);
+      return;
+    }
+    closeModal();
+  };
+
+  const addTempTacheCustom = (data: {
+    nom_tache: string;
+    code?: string;
+    heures_prevues: number;
+    couleur?: string; // optionnel (mais on génère une couleur unique automatiquement)
+  }) => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const used = getUsedColors();
+    const couleur = generateUniqueRandomColor(used);
+    // Réserver cette couleur pour les prochaines tâches créées dans ce modal
+    usedColorsRef.current.add(couleur.toUpperCase());
+
+    const nouvelleTache = {
+      id: tempId,
+      nom_tache: data.nom_tache,
+      nom: data.nom_tache,
+      code: data.code || '',
+      heures_prevues: data.heures_prevues,
+      couleur,
+      tache_type_id: null,
+    };
+
+    setTachesProjet((prev) => [...prev, nouvelleTache]);
+    setSelectedTaches((prev) => (prev.includes(tempId) ? prev : [...prev, tempId]));
+    setTachesHeuresModal((prev) => ({ ...prev, [tempId]: data.heures_prevues || 0 }));
+    setTachesNomsModal((prev) => ({ ...prev, [tempId]: data.nom_tache }));
+    setTachesCodesModal((prev) => ({ ...prev, [tempId]: (data.code || '').toUpperCase() }));
+    setTachesCouleursModal((prev) => ({ ...prev, [tempId]: couleur }));
+  };
+
+  const addTempTacheFromType = (tacheType: any, heures_prevues: number) => {
+    const typeId = tacheType?.id ? String(tacheType.id) : '';
+    if (!typeId) return;
+
+    // Si la tâche de ce type existe déjà dans le projet, on n'en crée pas une 2e :
+    // on "ajoute des heures" et on la sélectionne.
+    const existing = tachesProjet.find((t: any) => String(t.tache_type_id || '') === typeId);
+    if (existing) {
+      const existingId = String(existing.id);
+      setSelectedTaches((prev) => (prev.includes(existingId) ? prev : [...prev, existingId]));
+      setTachesHeuresModal((prev) => {
+        const current = prev[existingId] ?? Number(existing.heures_prevues || 0);
+        return { ...prev, [existingId]: current + (heures_prevues || 0) };
+      });
+      return;
+    }
+
+    // Sinon, on crée une nouvelle tâche du type
+    const tempId = `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    const nouvelleTache = {
+      id: tempId,
+      nom_tache: tacheType?.tache_type || '',
+      nom: tacheType?.tache_type || '',
+      code: tacheType?.code || '',
+      heures_prevues: heures_prevues || 0,
+      // Affichage immédiat: prendre la couleur du type (cohérente entre projets).
+      couleur: tacheType?.couleur || '#10B981',
+      tache_type_id: typeId,
+      tache_type: tacheType,
+    };
+
+    setTachesProjet((prev) => [...prev, nouvelleTache]);
+    setSelectedTaches((prev) => (prev.includes(tempId) ? prev : [...prev, tempId]));
+    setTachesHeuresModal((prev) => ({ ...prev, [tempId]: heures_prevues || 0 }));
+    setTachesNomsModal((prev) => ({ ...prev, [tempId]: nouvelleTache.nom_tache }));
+    setTachesCodesModal((prev) => ({ ...prev, [tempId]: (nouvelleTache.code || '').toUpperCase() }));
+    // Ne pas forcer de couleur côté API (sauf si l'utilisateur la modifie):
+    // pas de setTachesCouleursModal ici.
+  };
+
+  const addBulkTaches = () => {
+    // Format conseillé (TSV): CODE<TAB>Nom<TAB>Heures
+    // Séparateur principal: tabulation. On accepte aussi "|" ou ";" pour compatibilité.
+    const lines = bulkTachesText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      toast.error('Colle une ou plusieurs lignes pour ajouter des tâches');
+      return;
+    }
+
+    let added = 0;
+    const errors: string[] = [];
+
+    lines.forEach((line, idx) => {
+      const parts = line.includes('\t') ? line.split('\t') : (line.includes('|') ? line.split('|') : line.split(';'));
+      if (parts.length < 2) {
+        errors.push(`Ligne ${idx + 1}: format invalide`);
+        return;
+      }
+
+      const code = (parts[0] || '').trim().toUpperCase();
+      const nom = (parts[1] || '').trim();
+      const heures = parts[2] !== undefined ? (parseFloat(String(parts[2]).trim()) || 0) : 0;
+
+      const typeMatch = tacheTypes.find((t: any) => String(t.code || '').toUpperCase() === code);
+      if (typeMatch) {
+        addTempTacheFromType(typeMatch, heures);
+        added += 1;
+      } else {
+        addTempTacheCustom({
+          nom_tache: nom || code,
+          code,
+          heures_prevues: heures,
+          couleur: '#10B981',
+        });
+        added += 1;
+      }
+    });
+
+    if (errors.length) {
+      toast.error(`Certaines lignes n'ont pas été ajoutées (${errors.length} erreur(s)).`);
+    }
+    if (added > 0) toast.success(`${added} tâche(s) ajoutée(s)`);
+    setBulkTachesText('');
+  };
+
   const openCreateModal = () => {
-    setForm(initialForm);
-    setSelectedTaches([]);
-    setTachesProjet([]);
+    const formState = { ...initialForm };
+    const selectedTachesState: string[] = [];
+    const tachesProjetState: any[] = [];
+    const tachesHeuresState: Record<string, number> = {};
+    const tachesNomsState: Record<string, string> = {};
+    const tachesCodesState: Record<string, string> = {};
+    const tachesCouleursState: Record<string, string> = {};
+
+    usedColorsRef.current = new Set();
+
+    setForm(formState);
+    setSelectedTaches(selectedTachesState);
+    setTachesProjet(tachesProjetState);
     setSelectedProjet(null);
-    setTachesHeuresModal({});
-    setTachesNomsModal({});
-    setTachesCouleursModal({});
-    setTachesCodesModal({});
+    setTachesHeuresModal(tachesHeuresState);
+    setTachesNomsModal(tachesNomsState);
+    setTachesCouleursModal(tachesCouleursState);
+    setTachesCodesModal(tachesCodesState);
+    setIsInlineQuickEditEnabled(false);
+    setIsUnsavedWarningOpen(false);
+    setInitialProjetSnapshot(
+      buildProjetSnapshot(
+        formState,
+        selectedTachesState,
+        tachesProjetState,
+        tachesHeuresState,
+        tachesNomsState,
+        tachesCodesState,
+        tachesCouleursState
+      )
+    );
     setIsModalOpen(true);
   };
 
@@ -388,8 +637,7 @@ export const ProjetsPage = () => {
       toast.error('Ce projet est archivé et ne peut pas être modifié');
       return;
     }
-    setSelectedProjet(projet);
-    setForm({
+    const formState = {
       id: projet.id,
       code_projet: projet.code_projet || '',
       nom: projet.nom,
@@ -402,7 +650,7 @@ export const ProjetsPage = () => {
       budget_euros: projet.budget_euros?.toString() || '',
       priorite: projet.priorite?.toString() || '1',
       actif: projet.actif,
-    });
+    };
     // Initialiser les tâches du projet (utiliser nom_tache si disponible, sinon tache_type)
     const tachesProjetData = projet.taches?.map((t: any) => ({
       id: String(t.id),
@@ -413,11 +661,14 @@ export const ProjetsPage = () => {
       tache_type_id: t.tache_type_id ? String(t.tache_type_id) : null, // Garder la référence pour savoir si c'est une tâche personnalisée
       tache_type: t.tache_type, // Garder la référence complète pour accéder au code
     })) || [];
-    setTachesProjet(tachesProjetData);
+    usedColorsRef.current = new Set(
+      tachesProjetData
+        .map((t: any) => (t.couleur || t.tache_type?.couleur || '#10B981').toString().trim().toUpperCase())
+        .filter((c: string) => c.length > 0)
+    );
     
     // Initialiser les IDs sélectionnés et les heures
     const tacheIds = tachesProjetData.map((t: any) => t.id);
-    setSelectedTaches(tacheIds);
     
     const heuresMap: Record<string, number> = {};
     const couleursMap: Record<string, string> = {};
@@ -426,15 +677,37 @@ export const ProjetsPage = () => {
       heuresMap[t.id] = t.heures_prevues;
       // S'assurer qu'une couleur est toujours définie : utiliser celle de la tâche (qui vient de tache_projet.couleur ou tache_type.couleur)
       // Cette couleur sera utilisée dans le modal d'édition
-      const couleurTache = t.couleur || '#10B981';
+      const couleurTache = t.couleur || t.tache_type?.couleur || '#10B981';
       couleursMap[t.id] = couleurTache;
       codesMap[t.id] = t.code || '';
       console.log(`Initialisation couleur pour tâche ${t.id} (${t.nom_tache}): ${couleurTache}`);
     });
+    const nomsMap: Record<string, string> = {};
+    tachesProjetData.forEach((t: any) => {
+      nomsMap[t.id] = t.nom_tache || '';
+    });
+
+    setSelectedProjet(projet);
+    setForm(formState);
+    setTachesProjet(tachesProjetData);
+    setSelectedTaches(tacheIds);
     setTachesHeuresModal(heuresMap);
     setTachesCouleursModal(couleursMap);
     setTachesCodesModal(codesMap);
-    
+    setTachesNomsModal(nomsMap);
+    setIsInlineQuickEditEnabled(false);
+    setIsUnsavedWarningOpen(false);
+    setInitialProjetSnapshot(
+      buildProjetSnapshot(
+        formState,
+        tacheIds,
+        tachesProjetData,
+        heuresMap,
+        nomsMap,
+        codesMap,
+        couleursMap
+      )
+    );
     setIsModalOpen(true);
   };
 
@@ -446,6 +719,11 @@ export const ProjetsPage = () => {
     setSelectedProjet(null);
     setTachesHeuresModal({});
     setTachesNomsModal({});
+    setTachesCodesModal({});
+    setTachesCouleursModal({});
+    setIsInlineQuickEditEnabled(false);
+    setIsUnsavedWarningOpen(false);
+    setInitialProjetSnapshot('');
   };
 
   const toggleTache = (tacheId: string) => {
@@ -485,6 +763,33 @@ export const ProjetsPage = () => {
     });
   };
 
+  const removeTacheFromProjet = (tacheId: string) => {
+    setTachesProjet((prev) => prev.filter((t: any) => String(t.id) !== String(tacheId)));
+    setSelectedTaches((prev) => prev.filter((id) => String(id) !== String(tacheId)));
+
+    // Nettoyer les changements inline en cours (pour revenir à la valeur d'origine)
+    setTachesHeuresModal((prev) => {
+      const next = { ...prev };
+      delete next[tacheId];
+      return next;
+    });
+    setTachesNomsModal((prev) => {
+      const next = { ...prev };
+      delete next[tacheId];
+      return next;
+    });
+    setTachesCodesModal((prev) => {
+      const next = { ...prev };
+      delete next[tacheId];
+      return next;
+    });
+    setTachesCouleursModal((prev) => {
+      const next = { ...prev };
+      delete next[tacheId];
+      return next;
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -506,7 +811,22 @@ export const ProjetsPage = () => {
     const tachesData = selectedTaches.map(tid => {
       const tacheProjet = tachesProjet.find((t: any) => t.id === tid);
       if (tacheProjet && tid.startsWith('temp-')) {
-        // Nouvelle tâche créée dans le projet (sans tache_type_id)
+        // Temp- tâche:
+        // - Si elle vient d'un type existant, on envoie tache_type_id (sinon la tâche sera "custom" et inutilisable pour les pointages)
+        // - Sinon, on envoie une tâche custom via nom_tache/code/couleur
+        if (tacheProjet.tache_type_id) {
+          return {
+            tache_type_id: tacheProjet.tache_type_id,
+            heures_prevues: tachesHeuresModal[tid] || tacheProjet.heures_prevues || 0,
+            // Permet de personnaliser le libellé et le code même pour un type global
+            nom_tache: tachesNomsModal[tid] || tacheProjet.nom_tache || tacheProjet.nom,
+            code: tachesCodesModal[tid] || tacheProjet.code || '',
+            // Par défaut: ne pas envoyer de couleur => elle vient de `tache_type` en BDD.
+            // Si l'utilisateur a explicitement choisi une couleur (modal d'édition), on la respecte.
+            ...(tachesCouleursModal[tid] !== undefined ? { couleur: tachesCouleursModal[tid] } : {}),
+          };
+        }
+
         return {
           nom_tache: tacheProjet.nom_tache || tacheProjet.nom,
           code: tachesCodesModal[tid] || tacheProjet.code || '',
@@ -592,34 +912,64 @@ export const ProjetsPage = () => {
     }
     setSelectedProjet(projet);
     setAssignSalarie('');
-    setAssignTache('');
+    setAssignTaches([]);
     setIsAssignModalOpen(true);
   };
 
-  const handleAssign = () => {
-    if (!assignSalarie || !assignTache) {
-      toast.error('Sélectionnez un salarié et une tâche');
+  useEffect(() => {
+    if (!isAssignModalOpen) return;
+    if (!assignSalarie || !selectedProjet?.affectations) {
+      setAssignTaches([]);
       return;
     }
 
-    // Trouver la tâche du projet par son tache_projet_id (id de la tâche dans le projet)
-    const tache = selectedProjet.taches?.find((t: any) => 
-      String(t.id) === assignTache
-    );
-    
-    if (!tache) {
-      toast.error('Tâche non trouvée dans ce projet');
-      console.error('Tâches disponibles:', selectedProjet.taches);
-      console.error('Tâche recherchée:', assignTache);
+    const alreadyAssignedTaskIds = (selectedProjet.affectations as any[])
+      .filter((aff: any) => String(aff.salarie_id || aff.salarie?.id) === String(assignSalarie))
+      .map((aff: any) => String(aff.tache_projet_id || aff.tache_projet?.id))
+      .filter(Boolean);
+
+    setAssignTaches(Array.from(new Set(alreadyAssignedTaskIds)));
+  }, [assignSalarie, isAssignModalOpen, selectedProjet]);
+
+  const handleAssign = () => {
+    if (!assignSalarie || assignTaches.length === 0) {
+      toast.error('Sélectionnez un salarié et au moins une tâche');
       return;
     }
+
+    const tachesDuProjet = selectedProjet?.taches || [];
+    const tacheTypeIdsByTacheProjetId: Record<string, string | undefined> = {};
+    assignTaches.forEach((tid) => {
+      const t = tachesDuProjet.find((x: any) => String(x.id) === String(tid));
+      if (t?.tache_type_id) tacheTypeIdsByTacheProjetId[String(tid)] = String(t.tache_type_id);
+    });
+
+    const affectationsDuSalarie = (selectedProjet?.affectations || []).filter(
+      (aff: any) => String(aff.salarie_id || aff.salarie?.id) === String(assignSalarie)
+    );
+    const existingTaskIds = new Set(
+      affectationsDuSalarie
+        .map((aff: any) => String(aff.tache_projet_id || aff.tache_projet?.id))
+        .filter(Boolean)
+    );
+    const desiredTaskIds = new Set(assignTaches.map(String));
+
+    const tacheIdsToAdd = Array.from(desiredTaskIds).filter((tid) => !existingTaskIds.has(String(tid)));
+    const affectationIdsToRemove = affectationsDuSalarie
+      .filter((aff: any) => {
+        const tid = String(aff.tache_projet_id || aff.tache_projet?.id);
+        return tid && !desiredTaskIds.has(tid);
+      })
+      .map((aff: any) => String(aff.id))
+      .filter(Boolean);
 
     assignMutation.mutate({
       projetId: selectedProjet.id,
       data: {
         salarie_id: assignSalarie,
-        tache_projet_id: tache.id,
-        tache_type_id: tache.tache_type_id ? String(tache.tache_type_id) : undefined, // Optionnel pour les tâches personnalisées
+        tache_projet_ids: tacheIdsToAdd,
+        tache_type_ids: tacheTypeIdsByTacheProjetId, // Optionnel (tâches personnalisées)
+        affectation_ids_to_remove: affectationIdsToRemove,
       },
     });
   };
@@ -709,6 +1059,42 @@ export const ProjetsPage = () => {
       if (!a.recommande && b.recommande) return 1;
       return 0;
     });
+  };
+
+  const getSalariesForProjetTaches = (taches: any[], selectedTacheProjetIds?: string[]) => {
+    const salariesActifs = salaries.filter((s: any) => s.actif);
+    const fonctionToTacheCode: Record<string, string[]> = {
+      Cableur: ['CAB'],
+      DAO: ['DAO'],
+      Prog: ['PROG', 'SCADA'],
+      Chef_Projet: ['CAB', 'DAO', 'PROG', 'SCADA', 'MES', 'ETU', 'AUT', 'FORM', 'REU', 'SAV', 'ADM'],
+      Admin: ['CAB', 'DAO', 'PROG', 'SCADA', 'MES', 'ETU', 'AUT', 'FORM', 'REU', 'SAV', 'ADM'],
+      Autre: ['AUT', 'MES', 'ETU'],
+    };
+
+    const selectedSet = new Set((selectedTacheProjetIds || []).map(String));
+    const relevantTaches = selectedSet.size
+      ? taches.filter((t: any) => selectedSet.has(String(t.id)))
+      : taches;
+    const codesSet = new Set(
+      relevantTaches
+        .map((t: any) => String(t.code || t.tache_type?.code || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    return salariesActifs
+      .map((s: any) => {
+        const fonction = s.fonction?.fonction;
+        const codesAcceptes = fonction ? fonctionToTacheCode[fonction] : null;
+        const recommande =
+          !codesAcceptes || codesAcceptes.some((c) => codesSet.has(String(c).toUpperCase()));
+        return { ...s, recommande };
+      })
+      .sort((a: any, b: any) => {
+        if (a.recommande && !b.recommande) return -1;
+        if (!a.recommande && b.recommande) return 1;
+        return 0;
+      });
   };
 
   if (isLoading) {
@@ -885,6 +1271,7 @@ export const ProjetsPage = () => {
                           .sort(sortTachesByCode)
                           .map((tache: any) => {
                           const isEditing = editingTache?.projetId === projet.id && editingTache?.tacheId === String(tache.id);
+                          const couleurTag = tache.couleur || tache.tache_type?.couleur || '#10B981';
                           return (
                             <div
                               key={tache.id}
@@ -894,8 +1281,8 @@ export const ProjetsPage = () => {
                                 <span
                                   className="px-3 py-1 rounded-full text-sm font-medium"
                                   style={{ 
-                                    backgroundColor: `${tache.couleur || tache.tache_type?.couleur || '#10B981'}20`, 
-                                    color: tache.couleur || tache.tache_type?.couleur || '#10B981' 
+                                    backgroundColor: `${couleurTag}20`,
+                                    color: couleurTag
                                   }}
                                 >
                                   {(() => {
@@ -1114,11 +1501,11 @@ export const ProjetsPage = () => {
       {/* Modal Création/Édition Projet */}
       <Modal
         isOpen={isModalOpen}
-        onClose={closeModal}
+        onClose={requestCloseModal}
         title={selectedProjet ? 'Modifier le projet' : 'Nouveau projet'}
         size="lg"
       >
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form ref={projetFormRef} onSubmit={handleSubmit} className="space-y-6">
           {/* Informations générales */}
           <div>
             <h3 className="text-sm font-medium text-gray-700 mb-3">Informations générales</h3>
@@ -1184,16 +1571,218 @@ export const ProjetsPage = () => {
                     Éditer les tâches
                   </button>
                 )}
+                {selectedTaches.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsInlineQuickEditEnabled((v) => !v)}
+                    className={`flex items-center gap-1 px-2 py-1 text-sm rounded-lg transition-colors ${
+                      isInlineQuickEditEnabled
+                        ? 'text-primary-700 bg-primary-50'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                    title="Édition rapide sur les cartes sélectionnées"
+                  >
+                    <Settings className="w-4 h-4" />
+                    Édition rapide
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setIsNewTacheModalOpen(true)}
                   className="flex items-center gap-1 px-2 py-1 text-sm text-primary-600 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-colors"
                 >
                   <Plus className="w-4 h-4" />
-                  Nouvelle tâche
+                  Nouvelle tâche (sur mesure)
                 </button>
               </div>
             </div>
+
+            {/* Ajout rapide des tâches */}
+            <div className="mt-4 space-y-3">
+              {/* 1) 1 clic via types existants */}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h4 className="text-sm font-medium text-gray-800">Ajout 1 clic (types existants)</h4>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Heures</span>
+                    <input
+                      type="number"
+                      value={tacheQuickHeures}
+                      onChange={(e) => setTacheQuickHeures(parseFloat(e.target.value) || 0)}
+                      className="w-24 px-3 py-2 rounded-lg border border-gray-300 bg-white"
+                      min="0"
+                      step="0.5"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tacheTypes
+                    .slice()
+                    .sort((a: any, b: any) => sortTachesByCode(a, b))
+                    .map((tt: any) => (
+                    <button
+                      key={tt.id}
+                      type="button"
+                      onClick={() => addTempTacheFromType(tt, tacheQuickHeures)}
+                      className="px-3 py-1 text-sm rounded-lg border border-gray-200 hover:border-gray-300 bg-white transition-colors"
+                      title={`${tt.code} - ${tt.tache_type}`}
+                    >
+                      {tt.code} - {tt.tache_type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2) Inline */}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h4 className="text-sm font-medium text-gray-800">Ajout inline</h4>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setInlineTacheMode('type')}
+                      className={`px-3 py-1 rounded-lg border transition-colors text-sm ${
+                        inlineTacheMode === 'type' ? 'bg-primary-50 border-primary-500 text-primary-700' : 'bg-white border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      Type
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInlineTacheMode('custom')}
+                      className={`px-3 py-1 rounded-lg border transition-colors text-sm ${
+                        inlineTacheMode === 'custom' ? 'bg-primary-50 border-primary-500 text-primary-700' : 'bg-white border-gray-200 text-gray-700'
+                      }`}
+                    >
+                      Personnalisé
+                    </button>
+                  </div>
+                </div>
+
+                {inlineTacheMode === 'type' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <Select
+                      label="Type"
+                      value={inlineTacheTypeId}
+                      onChange={(e) => setInlineTacheTypeId(e.target.value)}
+                      options={[
+                        { value: '', label: 'Choisir...' },
+                        ...tacheTypes.map((tt: any) => ({
+                          value: tt.id.toString(),
+                          label: `${tt.code} - ${tt.tache_type}`,
+                        })),
+                      ]}
+                    />
+                    <Input
+                      type="number"
+                      label="Heures"
+                      value={inlineTacheHeures}
+                      onChange={(e) => setInlineTacheHeures(parseFloat(e.target.value) || 0)}
+                    />
+                    <Button
+                      onClick={() => {
+                        if (!inlineTacheTypeId) {
+                          toast.error('Choisis un type');
+                          return;
+                        }
+                        const tt = tacheTypes.find((x: any) => String(x.id) === inlineTacheTypeId);
+                        if (!tt) {
+                          toast.error('Type introuvable');
+                          return;
+                        }
+                        addTempTacheFromType(tt, inlineTacheHeures);
+                        setInlineTacheTypeId('');
+                        setInlineTacheHeures(0);
+                      }}
+                      variant="primary"
+                    >
+                      Ajouter
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <Input
+                      label="Code"
+                      value={inlineCustomCode}
+                      onChange={(e) => setInlineCustomCode(e.target.value.toUpperCase())}
+                      placeholder="CAB, DAO..."
+                    />
+                    <Input
+                      label="Nom"
+                      value={inlineCustomNom}
+                      onChange={(e) => setInlineCustomNom(e.target.value)}
+                      placeholder="Installation électrique..."
+                    />
+                    <Input
+                      type="number"
+                      label="Heures"
+                      value={inlineCustomHeures}
+                      onChange={(e) => setInlineCustomHeures(parseFloat(e.target.value) || 0)}
+                    />
+                    <div className="space-y-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Couleur</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={inlineCustomCouleur}
+                          onChange={(e) => setInlineCustomCouleur(e.target.value)}
+                          className="w-12 h-10 p-1 border rounded cursor-pointer"
+                        />
+                        <Button
+                          onClick={() => {
+                            if (!inlineCustomNom) {
+                              toast.error('Le nom est requis');
+                              return;
+                            }
+                            addTempTacheCustom({
+                              nom_tache: inlineCustomNom,
+                              code: inlineCustomCode,
+                              heures_prevues: inlineCustomHeures,
+                              couleur: inlineCustomCouleur,
+                            });
+                            setInlineCustomCode('');
+                            setInlineCustomNom('');
+                            setInlineCustomHeures(0);
+                            setInlineCustomCouleur('#10B981');
+                          }}
+                          variant="primary"
+                        >
+                          Ajouter
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 4) Bulk */}
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <h4 className="text-sm font-medium text-gray-800 mb-2">Ajout en masse</h4>
+                <textarea
+                  value={bulkTachesText}
+                  onChange={(e) => setBulkTachesText(e.target.value)}
+                  placeholder={"CODE\tNom\tHeures\nCAB\tCâblage armoire\t12.5\nDAO\tDessins DAO\t8"}
+                  className="w-full min-h-[90px] p-3 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setBulkTachesText('')}
+                    type="button"
+                  >
+                    Effacer
+                  </Button>
+                  <Button
+                    onClick={addBulkTaches}
+                    type="button"
+                    variant="primary"
+                  >
+                    Ajouter les tâches
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             {/* Afficher les tâches du projet */}
             {tachesProjet.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1202,7 +1791,20 @@ export const ProjetsPage = () => {
                   .sort(sortTachesByCode)
                   .map((tache: any) => {
                   const isSelected = selectedTaches.includes(tache.id);
-                  const heuresActuelles = tachesHeuresModal[tache.id] || tache.heures_prevues || 0;
+                  const heuresActuelles = tachesHeuresModal[tache.id] ?? tache.heures_prevues ?? 0;
+                  const couleurAffichee =
+                    tachesCouleursModal[tache.id] ??
+                    tache.couleur ??
+                    tache.tache_type?.couleur ??
+                    '#10B981';
+                  const codeAffiche =
+                    tachesCodesModal[tache.id] ??
+                    tache.code ??
+                    tache.tache_type?.code;
+                  const nomAffiche =
+                    tachesNomsModal[tache.id] ??
+                    tache.nom_tache ??
+                    tache.nom;
                   
                   return (
                     <div
@@ -1220,13 +1822,11 @@ export const ProjetsPage = () => {
                       >
                         <span
                           className="inline-block px-2 py-1 rounded text-sm font-medium"
-                          style={{ backgroundColor: `${tache.couleur || '#10B981'}20`, color: tache.couleur || '#10B981' }}
+                          style={{ backgroundColor: `${couleurAffichee}20`, color: couleurAffichee }}
                         >
-                          {(() => {
-                            const code = tache.code || tache.tache_type?.code;
-                            const nom = tache.nom_tache || tache.nom;
-                            return code ? `${code} - ${nom}` : nom;
-                          })()}
+                          {codeAffiche
+                            ? `${codeAffiche} - ${nomAffiche ?? ''}`
+                            : nomAffiche ?? ''}
                         </span>
                         {heuresActuelles > 0 && (
                           <div className="mt-1 text-xs text-gray-500">
@@ -1234,23 +1834,72 @@ export const ProjetsPage = () => {
                           </div>
                         )}
                       </button>
-                      {!tache.id.startsWith('temp-') && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTachesProjet(tachesProjet.filter((t: any) => t.id !== tache.id));
-                            setSelectedTaches(selectedTaches.filter((id) => id !== tache.id));
-                            const newHeures = { ...tachesHeuresModal };
-                            delete newHeures[tache.id];
-                            setTachesHeuresModal(newHeures);
-                          }}
-                          className="absolute top-1 right-1 p-1 rounded-full hover:bg-red-100 text-red-600"
-                          title="Supprimer cette tâche"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                      {isInlineQuickEditEnabled && isSelected && (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              value={heuresActuelles}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setTachesHeuresModal((prev) => ({ ...prev, [tache.id]: val }));
+                              }}
+                              className="w-28"
+                              min="0"
+                              step="0.5"
+                              label={undefined}
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <Input
+                              value={nomAffiche ?? ''}
+                              onChange={(e) => {
+                                setTachesNomsModal((prev) => ({ ...prev, [tache.id]: e.target.value }));
+                              }}
+                              className="w-full"
+                              label={undefined}
+                              placeholder="Nom"
+                            />
+                            <Input
+                              value={codeAffiche ?? ''}
+                              onChange={(e) => {
+                                setTachesCodesModal((prev) => ({
+                                  ...prev,
+                                  [tache.id]: e.target.value.toUpperCase(),
+                                }));
+                              }}
+                              className="w-full"
+                              label={undefined}
+                              placeholder="Code"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={couleurAffichee}
+                              onChange={(e) => {
+                                const newColor = e.target.value;
+                                setTachesCouleursModal((prev) => ({ ...prev, [tache.id]: newColor }));
+                                setTachesProjet((prev) =>
+                                  prev.map((t: any) => (t.id === tache.id ? { ...t, couleur: newColor } : t))
+                                );
+                              }}
+                              className="w-10 h-8 p-0 border rounded cursor-pointer bg-white"
+                            />
+                          </div>
+                        </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeTacheFromProjet(tache.id);
+                        }}
+                        className="absolute top-1 right-1 p-1 rounded-full hover:bg-red-100 text-red-600"
+                        title="Supprimer cette tâche"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   );
                 })}
@@ -1323,7 +1972,7 @@ export const ProjetsPage = () => {
 
           {/* Actions */}
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={closeModal}>
+            <Button type="button" variant="outline" onClick={requestCloseModal}>
               Annuler
             </Button>
             <Button
@@ -1334,6 +1983,45 @@ export const ProjetsPage = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        isOpen={isUnsavedWarningOpen}
+        onClose={() => setIsUnsavedWarningOpen(false)}
+        title="Modifications non enregistrées"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-gray-600">
+            Vous avez des modifications non enregistrées. Voulez-vous quitter sans enregistrer ?
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsUnsavedWarningOpen(false)}
+            >
+              Rester
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsUnsavedWarningOpen(false);
+                projetFormRef.current?.requestSubmit();
+              }}
+            >
+              Enregistrer
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setIsUnsavedWarningOpen(false);
+                closeModal();
+              }}
+            >
+              Quitter sans enregistrer
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Modal Assignation */}
@@ -1347,69 +2035,101 @@ export const ProjetsPage = () => {
           {/* Afficher les tâches du projet */}
           {selectedProjet?.taches?.length > 0 ? (
             <>
-              <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Tâches disponibles :</p>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {selectedProjet.taches
-                    .slice()
-                    .sort(sortTachesByCode)
-                    .map((t: any) => (
-                      <span
-                        key={t.id}
-                        className="px-3 py-1 rounded-full text-sm font-medium"
-                        style={{ 
-                          backgroundColor: `${t.couleur || t.tache_type?.couleur || '#10B981'}20`, 
-                          color: t.couleur || t.tache_type?.couleur || '#10B981' 
-                        }}
-                      >
-                        {(() => {
-                          const code = t.code || t.tache_type?.code;
-                          const nom = t.nom_tache || t.tache_type?.tache_type || getTacheLabel(String(t.tache_type_id));
-                          return code ? `${code} - ${nom}` : nom;
-                        })()}
-                      </span>
-                    ))}
-                </div>
-              </div>
-
-              <Select
-                label="Tâche à assigner"
-                value={assignTache}
-                onChange={(e) => {
-                  setAssignTache(e.target.value);
-                  setAssignSalarie(''); // Reset salarié quand tâche change
-                }}
-                options={[
-                  { value: '', label: 'Sélectionner une tâche...' },
-                  ...(selectedProjet?.taches
-                    ?.slice()
-                    .sort(sortTachesByCode)
-                    .map((t: any) => ({
-                      value: String(t.id), // Utiliser tache_projet_id au lieu de tache_type_id
-                      label: (() => {
-                        const code = t.code || t.tache_type?.code;
-                        const nom = t.nom_tache || t.tache_type?.tache_type || getTacheLabel(String(t.tache_type_id)) || 'Tâche sans nom';
-                        return code ? `${code} - ${nom}` : nom;
-                      })(),
-                    })) || []),
-                ]}
-              />
-
               <Select
                 label="Salarié"
                 value={assignSalarie}
                 onChange={(e) => setAssignSalarie(e.target.value)}
-                disabled={!assignTache}
                 options={[
-                  { value: '', label: assignTache ? 'Sélectionner un salarié...' : 'Choisissez d\'abord une tâche' },
-                  ...(assignTache
-                    ? getSalariesForTache(assignTache).map((s: any) => ({
-                        value: s.id.toString(),
-                        label: `${s.recommande ? '★ ' : ''}${s.prenom} ${s.nom}${s.fonction ? ` (${s.fonction.fonction})` : ''}${!s.recommande ? ' - autre spécialité' : ''}`,
-                      }))
-                    : []),
+                  { value: '', label: 'Sélectionner un salarié...' },
+                  ...getSalariesForProjetTaches(selectedProjet?.taches || [], assignTaches).map((s: any) => ({
+                    value: s.id.toString(),
+                    label: `${s.recommande ? '★ ' : ''}${s.prenom} ${s.nom}${s.fonction ? ` (${s.fonction.fonction})` : ''}${!s.recommande ? ' - autre spécialité' : ''}`,
+                  })),
                 ]}
               />
+
+              <div className={assignSalarie ? '' : 'opacity-60'}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-gray-700">Tâches à assigner</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 rounded border border-gray-200 hover:bg-gray-50"
+                      onClick={() =>
+                        setAssignTaches(
+                          (selectedProjet?.taches || []).slice().sort(sortTachesByCode).map((t: any) => String(t.id))
+                        )
+                      }
+                      disabled={!assignSalarie}
+                    >
+                      Tout sélectionner
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 rounded border border-gray-200 hover:bg-gray-50"
+                      onClick={() => setAssignTaches([])}
+                      disabled={!assignSalarie}
+                    >
+                      Tout enlever
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+                  <div className="divide-y divide-gray-100">
+                    {(selectedProjet?.taches || [])
+                      .slice()
+                      .sort(sortTachesByCode)
+                      .map((t: any) => {
+                        const id = String(t.id);
+                        const checked = assignTaches.includes(id);
+                        const couleur = t.couleur || t.tache_type?.couleur || '#10B981';
+                        const code = t.code || t.tache_type?.code;
+                        const nom = t.nom_tache || t.tache_type?.tache_type || getTacheLabel(String(t.tache_type_id));
+                        const label = code ? `${code} - ${nom}` : nom;
+
+                        return (
+                          <label
+                            key={id}
+                            className={[
+                              'flex items-center gap-3 px-3 py-2 text-sm cursor-pointer select-none',
+                              !assignSalarie ? 'cursor-not-allowed' : 'hover:bg-gray-50',
+                            ].join(' ')}
+                            title={label}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              disabled={!assignSalarie}
+                              checked={checked}
+                              onChange={(e) => {
+                                const nextChecked = e.target.checked;
+                                setAssignTaches((prev) => {
+                                  if (nextChecked) return prev.includes(id) ? prev : [...prev, id];
+                                  return prev.filter((x) => x !== id);
+                                });
+                              }}
+                            />
+                            <span
+                              className="h-2.5 w-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: couleur }}
+                              aria-hidden="true"
+                            />
+                            <span className="min-w-0 truncate" style={{ color: '#111827' }}>
+                              {label}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+
+                <p className="mt-2 text-xs text-gray-500">
+                  {assignTaches.length > 0
+                    ? `${assignTaches.length} tâche(s) sélectionnée(s)`
+                    : 'Cochez une ou plusieurs tâches à assigner'}
+                </p>
+              </div>
 
               <p className="text-sm text-gray-500">
                 ★ = Salarié recommandé selon sa fonction. Vous pouvez assigner n'importe quel salarié à n'importe quelle tâche.
@@ -1428,7 +2148,7 @@ export const ProjetsPage = () => {
             <Button 
               onClick={handleAssign} 
               isLoading={assignMutation.isPending}
-              disabled={!assignTache || !assignSalarie || selectedProjet?.taches?.length === 0}
+              disabled={!assignSalarie || assignTaches.length === 0 || selectedProjet?.taches?.length === 0}
             >
               Assigner
             </Button>
@@ -1457,7 +2177,7 @@ export const ProjetsPage = () => {
                   Annuler
                 </Button>
                 <Button
-                  variant="default"
+                  variant="primary"
                   onClick={() => archiveMutation.mutate({ id: selectedProjet.id, archive: false })}
                   isLoading={archiveMutation.isPending}
                 >
@@ -1485,7 +2205,7 @@ export const ProjetsPage = () => {
                   Annuler
                 </Button>
                 <Button
-                  variant="default"
+                  variant="primary"
                   onClick={() => archiveMutation.mutate({ id: selectedProjet.id, archive: true })}
                   isLoading={archiveMutation.isPending}
                 >
@@ -1526,7 +2246,7 @@ export const ProjetsPage = () => {
               const nomActuel = tachesNomsModal[tacheId] ?? tache.nom_tache ?? tache.nom ?? 'Tâche sans nom';
               // S'assurer que la couleur est toujours définie : priorité à tachesCouleursModal, puis tache.couleur, puis défaut
               // Si la couleur n'est pas dans tachesCouleursModal, utiliser celle de tache (qui peut venir de tache_projet ou tache_type)
-              const couleurActuelle = tachesCouleursModal[tacheId] || tache.couleur || '#10B981';
+              const couleurActuelle = tachesCouleursModal[tacheId] || tache.couleur || tache.tache_type?.couleur || '#10B981';
               
               return (
                 <div
@@ -1753,9 +2473,9 @@ export const ProjetsPage = () => {
               <button
                 type="button"
                 onClick={() => {
-                  // Générer une couleur hexadécimale aléatoire
-                  const randomColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-                  setNewTache({ ...newTache, couleur: randomColor });
+                  const couleur = generateUniqueRandomColor(getUsedColors());
+                  usedColorsRef.current.add(couleur.toUpperCase());
+                  setNewTache({ ...newTache, couleur });
                 }}
                 className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
                 title="Générer une couleur aléatoire"
@@ -1786,13 +2506,15 @@ export const ProjetsPage = () => {
                   toast.error('Le nom de la tâche est requis');
                   return;
                 }
+                const couleur = generateUniqueRandomColor(getUsedColors());
+                usedColorsRef.current.add(couleur.toUpperCase());
                 // Ajouter la tâche à la liste des tâches du projet
                 const nouvelleTache = {
                   id: `temp-${Date.now()}`,
                   nom_tache: newTache.nom,
                   code: newTache.code,
                   heures_prevues: newTache.heures_prevues,
-                  couleur: newTache.couleur,
+                  couleur,
                 };
                 setTachesProjet([...tachesProjet, nouvelleTache]);
                 setSelectedTaches([...selectedTaches, nouvelleTache.id]);
@@ -1801,11 +2523,54 @@ export const ProjetsPage = () => {
                   [nouvelleTache.id]: newTache.heures_prevues,
                 });
                 setIsNewTacheModalOpen(false);
-                setNewTache({ nom: '', heures_prevues: 0, couleur: '#10B981' });
+                setNewTache({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
                 toast.success('Tâche ajoutée au projet');
               }}
             >
               Ajouter la tâche
+            </Button>
+            <Button
+              onClick={() => {
+                if (!newTache.nom) {
+                  toast.error('Le nom de la tâche est requis');
+                  return;
+                }
+                const couleur = generateUniqueRandomColor(getUsedColors());
+                usedColorsRef.current.add(couleur.toUpperCase());
+                const nouvelleTache = {
+                  id: `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                  nom_tache: newTache.nom,
+                  code: newTache.code,
+                  heures_prevues: newTache.heures_prevues,
+                  couleur,
+                };
+                setTachesProjet((prev) => [...prev, nouvelleTache]);
+                setSelectedTaches((prev) => (prev.includes(nouvelleTache.id) ? prev : [...prev, nouvelleTache.id]));
+                setTachesHeuresModal((prev) => ({
+                  ...prev,
+                  [nouvelleTache.id]: newTache.heures_prevues,
+                }));
+                setTachesNomsModal((prev) => ({
+                  ...prev,
+                  [nouvelleTache.id]: nouvelleTache.nom_tache,
+                }));
+                setTachesCodesModal((prev) => ({
+                  ...prev,
+                  [nouvelleTache.id]: (nouvelleTache.code || '').toUpperCase(),
+                }));
+                setTachesCouleursModal((prev) => ({
+                  ...prev,
+                  [nouvelleTache.id]: nouvelleTache.couleur || '#10B981',
+                }));
+
+                // Continuer: on vide le formulaire mais on garde le modal ouvert
+                setNewTache({ nom: '', code: '', heures_prevues: 0, couleur: '#10B981' });
+                toast.success('Tâche ajoutée - continuer');
+              }}
+              variant="secondary"
+              type="button"
+            >
+              Ajouter et continuer
             </Button>
           </div>
         </div>

@@ -142,6 +142,8 @@ export interface SalarieCp {
   cp_mercredi: boolean;
   cp_jeudi: boolean;
   cp_vendredi: boolean;
+  cp_samedi?: boolean;
+  cp_dimanche?: boolean;
   type_conge: CongeType;
   // Types par jour (nouveau)
   type_lundi?: CongeType;
@@ -149,8 +151,18 @@ export interface SalarieCp {
   type_mercredi?: CongeType;
   type_jeudi?: CongeType;
   type_vendredi?: CongeType;
+  type_samedi?: CongeType;
+  type_dimanche?: CongeType;
   commentaire?: string;
   validation_status: ValidationStatus;
+  /** Renseignés par l’API (fusion semaine) : confirmation « travail ce jour férié » */
+  travail_ferie_lundi?: boolean;
+  travail_ferie_mardi?: boolean;
+  travail_ferie_mercredi?: boolean;
+  travail_ferie_jeudi?: boolean;
+  travail_ferie_vendredi?: boolean;
+  travail_ferie_samedi?: boolean;
+  travail_ferie_dimanche?: boolean;
 }
 
 export interface ValidationSemaine {
@@ -161,6 +173,7 @@ export interface ValidationSemaine {
   status: ValidationStatus;
   total_heures_travaillees?: number;
   total_heures_cp?: number;
+  heures_dues?: number;
   date_soumission?: string;
   date_validation?: string;
   validateur_id?: string;
@@ -171,7 +184,9 @@ export interface JourFerie {
   id: string;
   date: string;
   libelle: string;
-  annee: number;
+  /** Alias API / Prisma */
+  nom?: string;
+  annee?: number;
 }
 
 // Types pour l'interface de pointage
@@ -250,11 +265,15 @@ export interface CongeInput {
   cp_mercredi?: boolean;
   cp_jeudi?: boolean;
   cp_vendredi?: boolean;
+  cp_samedi?: boolean;
+  cp_dimanche?: boolean;
   type_lundi?: CongeType;
   type_mardi?: CongeType;
   type_mercredi?: CongeType;
   type_jeudi?: CongeType;
   type_vendredi?: CongeType;
+  type_samedi?: CongeType;
+  type_dimanche?: CongeType;
   type_conge?: CongeType;
   motif?: string;
 }

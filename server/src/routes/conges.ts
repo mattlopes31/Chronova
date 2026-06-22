@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authMiddleware, managerMiddleware, AuthRequest } from '../middlewares/auth';
+import { authMiddleware, managerMiddleware, adminMiddleware, AuthRequest } from '../middlewares/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -56,9 +56,10 @@ router.get('/jours-feries', authMiddleware, async (req: AuthRequest, res: Respon
     const where: any = {};
     if (annee) {
       const year = parseInt(annee as string);
+      // Bornes en UTC : évite qu’un fuseau serveur exclue le 1er ou le 31/12 pour l’année demandée.
       where.date = {
-        gte: new Date(year, 0, 1),
-        lte: new Date(year, 11, 31)
+        gte: new Date(Date.UTC(year, 0, 1)),
+        lte: new Date(Date.UTC(year, 11, 31))
       };
     }
 
@@ -67,8 +68,59 @@ router.get('/jours-feries', authMiddleware, async (req: AuthRequest, res: Respon
       orderBy: { date: 'asc' }
     });
 
-    res.json(serializeBigInt(joursFeries));
+    const mapped = joursFeries.map((j) => ({
+      ...j,
+      libelle: j.nom,
+    }));
+    res.json(serializeBigInt(mapped));
   } catch (error) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// POST /api/conges/jours-feries — Admin : ajouter un jour férié
+router.post('/jours-feries', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { date, nom } = req.body as { date?: string; nom?: string };
+    if (!date || !nom || !String(nom).trim()) {
+      return res.status(400).json({ error: 'Date et nom requis' });
+    }
+    const d = new Date(String(date).slice(0, 10) + 'T12:00:00.000Z');
+    if (isNaN(d.getTime())) {
+      return res.status(400).json({ error: 'Date invalide' });
+    }
+    const created = await prisma.jourFerie.create({
+      data: {
+        date: d,
+        nom: String(nom).trim().slice(0, 100),
+      },
+    });
+    res.status(201).json(
+      serializeBigInt({
+        ...created,
+        libelle: created.nom,
+      })
+    );
+  } catch (e: any) {
+    if (e?.code === 'P2002') {
+      return res.status(409).json({ error: 'Un jour férié existe déjà à cette date' });
+    }
+    console.error('Erreur création jour férié:', e);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// DELETE /api/conges/jours-feries/:id — Admin
+router.delete('/jours-feries/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = BigInt(req.params.id);
+    await prisma.jourFerie.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e: any) {
+    if (e?.code === 'P2025') {
+      return res.status(404).json({ error: 'Jour férié introuvable' });
+    }
+    console.error('Erreur suppression jour férié:', e);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -83,6 +135,21 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Année et semaine requises' });
     }
 
+    const validationBlocage = await prisma.validationSemaine.findUnique({
+      where: {
+        salarie_id_annee_semaine: {
+          salarie_id,
+          annee: data.annee,
+          semaine: data.semaine,
+        },
+      },
+    });
+    if (validationBlocage && (validationBlocage.status === 'Soumis' || validationBlocage.status === 'Valide')) {
+      return res.status(400).json({
+        error: 'Cette semaine est soumise ou validée : vous ne pouvez plus modifier les absences / déplacements.',
+      });
+    }
+
     // Si on a des types par jour, créer/mettre à jour les entrées par type
     const typesParJour = {
       lundi: data.type_lundi || data.type_conge || 'CP',
@@ -90,19 +157,41 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       mercredi: data.type_mercredi || data.type_conge || 'CP',
       jeudi: data.type_jeudi || data.type_conge || 'CP',
       vendredi: data.type_vendredi || data.type_conge || 'CP',
+      samedi: data.type_samedi || data.type_conge || 'CP',
+      dimanche: data.type_dimanche || data.type_conge || 'CP',
     };
 
-    // Regrouper les jours par type de congé
-    const joursParType: Record<string, { lundi: boolean; mardi: boolean; mercredi: boolean; jeudi: boolean; vendredi: boolean }> = {};
-    
-    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi'] as const;
-    
+    type JoursCp = {
+      lundi: boolean;
+      mardi: boolean;
+      mercredi: boolean;
+      jeudi: boolean;
+      vendredi: boolean;
+      samedi: boolean;
+      dimanche: boolean;
+    };
+
+    const emptyJours = (): JoursCp => ({
+      lundi: false,
+      mardi: false,
+      mercredi: false,
+      jeudi: false,
+      vendredi: false,
+      samedi: false,
+      dimanche: false,
+    });
+
+    // Regrouper les jours par type de congé (inclut week-end : déplacements, etc.)
+    const joursParType: Record<string, JoursCp> = {};
+
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
+
     for (const jour of jours) {
       const cpKey = `cp_${jour}` as keyof typeof data;
       if (data[cpKey]) {
         const type = typesParJour[jour];
         if (!joursParType[type]) {
-          joursParType[type] = { lundi: false, mardi: false, mercredi: false, jeudi: false, vendredi: false };
+          joursParType[type] = emptyJours();
         }
         joursParType[type][jour] = true;
       }
@@ -117,11 +206,22 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       }
     });
 
+    const travailFerieBody = (data as any).travail_ferie as Record<string, boolean> | undefined;
+
     // Créer une entrée pour chaque type utilisé
     const results = [];
     for (const [type, joursActifs] of Object.entries(joursParType)) {
       const hasAnyDay = Object.values(joursActifs).some(v => v);
       if (hasAnyDay) {
+        let motifRow: string | null = data.motif ?? null;
+        if (type === 'Deplacement') {
+          const tf: Record<string, boolean> = {};
+          for (const jour of jours) {
+            tf[jour] = !!(travailFerieBody && travailFerieBody[jour]);
+          }
+          motifRow = JSON.stringify({ chronova_tf: 1, tf });
+        }
+
         const conge = await prisma.salarieCp.create({
           data: {
             salarie_id,
@@ -133,9 +233,9 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
             cp_mercredi: joursActifs.mercredi,
             cp_jeudi: joursActifs.jeudi,
             cp_vendredi: joursActifs.vendredi,
-            cp_samedi: false,
-            cp_dimanche: false,
-            motif: data.motif
+            cp_samedi: joursActifs.samedi,
+            cp_dimanche: joursActifs.dimanche,
+            motif: motifRow
           }
         });
         results.push(conge);

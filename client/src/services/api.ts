@@ -218,12 +218,13 @@ export const pointagesApi = {
       conges: SalarieCp;
       validation: ValidationSemaine;
       jours_feries: JourFerie[];
+      cumul_heures_dues?: number;
     }>(`/pointages/semaine/${annee}/${semaine}`);
     return res.data;
   },
   create: async (data: {
     projet_id: string;
-    tache_type_id: string;
+    tache_type_id?: string;
     tache_projet_id?: string;
     annee: number;
     semaine: number;
@@ -264,7 +265,21 @@ export const congesApi = {
     return res.data;
   },
   getJoursFeries: async (annee?: number) => {
-    const res = await api.get<JourFerie[]>('/conges/jours-feries', { params: { annee } });
+    const res = await api.get<any[]>('/conges/jours-feries', { params: { annee } });
+    return res.data.map((raw) => ({
+      id: String(raw.id),
+      date: typeof raw.date === 'string' ? raw.date.split('T')[0] : raw.date,
+      libelle: raw.libelle ?? raw.nom ?? '',
+      nom: raw.nom,
+      annee: raw.annee ?? (raw.date ? parseInt(String(raw.date).slice(0, 4), 10) : undefined),
+    })) as JourFerie[];
+  },
+  createJourFerie: async (data: { date: string; nom: string }) => {
+    const res = await api.post<JourFerie>('/conges/jours-feries', data);
+    return res.data;
+  },
+  deleteJourFerie: async (id: string) => {
+    const res = await api.delete(`/conges/jours-feries/${id}`);
     return res.data;
   },
   create: async (data: {
@@ -275,8 +290,19 @@ export const congesApi = {
     cp_mercredi?: boolean;
     cp_jeudi?: boolean;
     cp_vendredi?: boolean;
+    cp_samedi?: boolean;
+    cp_dimanche?: boolean;
+    type_lundi?: string;
+    type_mardi?: string;
+    type_mercredi?: string;
+    type_jeudi?: string;
+    type_vendredi?: string;
+    type_samedi?: string;
+    type_dimanche?: string;
     type_conge?: string;
     commentaire?: string;
+    /** Cases « travail ce jour férié » (persistées dans le motif de la ligne Déplacement). */
+    travail_ferie?: Record<string, boolean>;
   }) => {
     const res = await api.post<SalarieCp>('/conges', data);
     return res.data;
@@ -319,6 +345,10 @@ export const dashboardApi = {
   },
   marquerNotificationLue: async (id: string) => {
     const res = await api.put(`/dashboard/notifications/${id}/lue`);
+    return res.data;
+  },
+  supprimerNotificationsLues: async () => {
+    const res = await api.delete<{ message: string; count: number }>('/dashboard/notifications/lues');
     return res.data;
   },
 };

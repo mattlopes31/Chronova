@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { authMiddleware, adminMiddleware, managerMiddleware, AuthRequest } from '../middlewares/auth';
 
 const router = Router();
@@ -10,6 +10,80 @@ const serializeBigInt = (obj: any): any => {
     typeof value === 'bigint' ? value.toString() : value
   ));
 };
+
+// Tente de lier une tâche "custom" à un type global existant.
+// Priorité: code -> nom exact.
+async function resolveTacheTypeId(
+  tx: Prisma.TransactionClient,
+  data: { code?: string | null; nom_tache?: string | null; couleur?: string | null }
+): Promise<bigint | null> {
+  const code = (data.code || '').trim();
+  const nom = (data.nom_tache || '').trim();
+  const couleur = (data.couleur || '').trim();
+  const couleurFinal = couleur || '#10B981';
+  const nomFinal = nom || code;
+
+  if (code) {
+    // 1) Match exact sur code
+    const byCode = await tx.tacheType.findFirst({
+      where: { code },
+      select: { id: true }
+    });
+    if (byCode) return byCode.id;
+
+    // 2) Match "robuste" en ignorant d'éventuels zéros de tête (dans un sens ou l'autre):
+    //    ex: "31" <-> "031"
+    const byCodeNormalized = await tx.$queryRaw<Array<{ id: bigint }>>`
+      SELECT id
+      FROM tache_type
+      WHERE TRIM(LEADING '0' FROM TRIM(code)) = TRIM(LEADING '0' FROM TRIM(${code}))
+      LIMIT 1
+    `;
+    if (byCodeNormalized?.[0]?.id) return byCodeNormalized[0].id;
+  }
+
+  if (nom) {
+    // Match exact puis insensible à la casse + trim
+    const byName = await tx.tacheType.findFirst({
+      where: { tache_type: nom },
+      select: { id: true }
+    });
+    if (byName) return byName.id;
+
+    const byNameCI = await tx.tacheType.findFirst({
+      where: { tache_type: { equals: nom, mode: 'insensitive' } },
+      select: { id: true }
+    });
+    if (byNameCI) return byNameCI.id;
+  }
+
+  // Si aucune correspondance n'existe, on crée un type global "à partir de la tâche custom"
+  // pour que la saisie de pointage puisse fonctionner (et éviter les taches avec tache_type_id = NULL).
+  if (code) {
+    try {
+      const created = await tx.tacheType.create({
+        data: {
+          tache_type: nomFinal,
+          code,
+          couleur: couleurFinal,
+          is_default: false,
+          is_facturable: true,
+          ordre: 0,
+          actif: true
+        }
+      });
+      return created.id;
+    } catch (err: any) {
+      // En cas de race condition (ou conflit unique sur `code`), on retente une lookup.
+      const byCodeAfter = code
+        ? await tx.tacheType.findFirst({ where: { code }, select: { id: true } })
+        : null;
+      if (byCodeAfter) return byCodeAfter.id;
+    }
+  }
+
+  return null;
+}
 
 // GET /api/projets - Liste des projets
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -107,6 +181,67 @@ router.get('/mes-projets', authMiddleware, async (req: AuthRequest, res: Respons
       console.log('Aucun projet assigné');
       return res.json([]);
     }
+
+    // Auto-réparation: certaines tâches custom existent avec tache_type_id = NULL.
+    // On crée/relie alors le TacheType manquant pour que le pointage puisse ensuite valider.
+    await prisma.$transaction(async (tx) => {
+      const missing = await tx.tacheProjetSalarie.findMany({
+        where: {
+          salarie_id: salarieId,
+          tache_type_id: null,
+          tache_projet: {
+            OR: [{ code: { not: null } }, { nom_tache: { not: null } }]
+          }
+        },
+        select: {
+          id: true,
+          tache_projet_id: true,
+          tache_projet: {
+            select: {
+              code: true,
+              nom_tache: true,
+              couleur: true,
+              tache_type_id: true
+            }
+          }
+        }
+      });
+
+      if (missing.length > 0) {
+        console.log(`[mes-projets] Auto-réparation affectations NULL: ${missing.length}`);
+      }
+
+      for (const aff of missing) {
+        const autoTypeId = await resolveTacheTypeId(tx, {
+          code: aff.tache_projet.code,
+          nom_tache: aff.tache_projet.nom_tache,
+          couleur: aff.tache_projet.couleur
+        });
+
+        if (!autoTypeId) {
+          console.warn('[mes-projets] Impossible de résoudre tache_type_id pour:', {
+            salarie_id: salarieId.toString(),
+            tache_projet_id: aff.tache_projet_id.toString(),
+            code: aff.tache_projet.code,
+            nom_tache: aff.tache_projet.nom_tache
+          });
+          continue;
+        }
+
+        await tx.tacheProjetSalarie.update({
+          where: { id: aff.id },
+          data: { tache_type_id: autoTypeId }
+        });
+
+        // Optionnel: si la tâche projet n'a pas de tache_type_id, on le renseigne aussi.
+        if (!aff.tache_projet.tache_type_id) {
+          await tx.tacheProjet.update({
+            where: { id: aff.tache_projet_id },
+            data: { tache_type_id: autoTypeId }
+          });
+        }
+      }
+    });
 
     const projets = await prisma.projet.findMany({
       where: {
@@ -381,12 +516,18 @@ router.post('/', authMiddleware, managerMiddleware, async (req: AuthRequest, res
         console.log('Création de', tachesData.length, 'tâches...');
         for (const tacheData of tachesData) {
           if (tacheData.nom_tache) {
-            // Créer une tâche avec nom personnalisé (sans tache_type_id)
+            // Créer une tâche avec nom personnalisé.
+            // Si le code/nom correspond à un type global, on renseigne tache_type_id automatiquement.
             console.log('  - Création tache_projet avec nom:', tacheData.nom_tache);
+            const autoTypeId = await resolveTacheTypeId(tx, {
+              code: tacheData.code || null,
+              nom_tache: tacheData.nom_tache || null,
+              couleur: tacheData.couleur || null
+            });
             await tx.tacheProjet.create({
               data: {
                 projet_id: projet.id,
-                tache_type_id: null, // Pas de type global
+                tache_type_id: autoTypeId,
                 nom_tache: tacheData.nom_tache,
                 code: tacheData.code || null,
                 heures_prevues: tacheData.heures_prevues || 0,
@@ -396,15 +537,21 @@ router.post('/', authMiddleware, managerMiddleware, async (req: AuthRequest, res
             });
           } else if (tacheData.tache_type_id) {
             // Créer une tâche avec type global existant
-            // Ne pas sauvegarder de couleur, elle viendra du tache_type
             console.log('  - Création tache_projet pour tache_type_id:', tacheData.tache_type_id);
+            const tt = await tx.tacheType.findUnique({
+              where: { id: BigInt(tacheData.tache_type_id) },
+              select: { couleur: true }
+            });
             await tx.tacheProjet.create({
               data: {
                 projet_id: projet.id,
                 tache_type_id: BigInt(tacheData.tache_type_id),
                 heures_prevues: tacheData.heures_prevues || 0,
                 taux_horaire: 50,
-                couleur: null // Pas de couleur personnalisée, utiliser celle du tache_type
+                // Champs optionnels (uniformiser avec tâches custom + édition rapide)
+                nom_tache: tacheData.nom_tache || null,
+                code: tacheData.code || null,
+                couleur: tacheData.couleur || tt?.couleur || null,
               }
             });
           }
@@ -458,6 +605,9 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
     // Extraire les tâches du body - peut être un tableau d'IDs, d'objets {tache_type_id, heures_prevues}, {nom_tache, heures_prevues, couleur} ou {tache_projet_id, heures_prevues}
     const tachesData = data.taches || [];
     const tacheTypeIds: number[] = [];
+    const couleursParTacheTypeId: Record<number, string> = {};
+    const nomsParTacheTypeId: Record<number, string> = {};
+    const codesParTacheTypeId: Record<number, string> = {};
     const tachesAvecNom: Array<{ nom_tache: string; code?: string; heures_prevues: number; couleur?: string }> = [];
     const tachesAMettreAJour: Array<{ tache_projet_id: string; heures_prevues: number; nom_tache?: string | null; code?: string | null; couleur?: string | null }> = [];
     
@@ -483,7 +633,17 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
       } 
       // Priorité 3: Tâche avec type global
       else if (t.tache_type_id) {
-        tacheTypeIds.push(Number(t.tache_type_id));
+        const typeId = Number(t.tache_type_id);
+        tacheTypeIds.push(typeId);
+        if (t.couleur !== undefined && t.couleur !== null) {
+          couleursParTacheTypeId[typeId] = String(t.couleur);
+        }
+        if (t.nom_tache !== undefined && t.nom_tache !== null) {
+          nomsParTacheTypeId[typeId] = String(t.nom_tache);
+        }
+        if (t.code !== undefined && t.code !== null) {
+          codesParTacheTypeId[typeId] = String(t.code);
+        }
       } 
       // Compatibilité avec ancien format
       else if (typeof t === 'number' || typeof t === 'string') {
@@ -705,6 +865,11 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
 
         // Ajouter les nouvelles tâches avec nom personnalisé
         for (const tacheAvecNom of tachesAvecNom) {
+          const autoTypeId = await resolveTacheTypeId(tx, {
+            code: tacheAvecNom.code || null,
+            nom_tache: tacheAvecNom.nom_tache || null,
+            couleur: tacheAvecNom.couleur || null
+          });
           try {
             console.log(`Création tâche avec nom: ${tacheAvecNom.nom_tache}, heures: ${tacheAvecNom.heures_prevues}, couleur: ${tacheAvecNom.couleur}`);
             
@@ -713,7 +878,7 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
               const nouvelleTache = await tx.tacheProjet.create({
                 data: {
                   projet_id: id,
-                  tache_type_id: null, // Pas de type global
+                  tache_type_id: autoTypeId,
                   nom_tache: tacheAvecNom.nom_tache,
                   code: tacheAvecNom.code || null,
                   heures_prevues: tacheAvecNom.heures_prevues,
@@ -727,7 +892,7 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
               console.log('Création avec SQL brut (colonnes non disponibles)...');
               await tx.$executeRaw`
                 INSERT INTO tache_projet (projet_id, tache_type_id, heures_prevues, taux_horaire, nom_tache, couleur)
-                VALUES (${id}, NULL, ${tacheAvecNom.heures_prevues}, 50, ${tacheAvecNom.nom_tache}, ${tacheAvecNom.couleur})
+                VALUES (${id}, ${autoTypeId}, ${tacheAvecNom.heures_prevues}, 50, ${tacheAvecNom.nom_tache}, ${tacheAvecNom.couleur})
               `;
               console.log(`✅ Tâche créée avec SQL brut`);
             }
@@ -740,7 +905,7 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
               try {
                 await tx.$executeRaw`
                   INSERT INTO tache_projet (projet_id, tache_type_id, heures_prevues, taux_horaire, nom_tache, couleur)
-                  VALUES (${id}, NULL, ${tacheAvecNom.heures_prevues}, 50, ${tacheAvecNom.nom_tache}, ${tacheAvecNom.couleur})
+                  VALUES (${id}, ${autoTypeId}, ${tacheAvecNom.heures_prevues}, 50, ${tacheAvecNom.nom_tache}, ${tacheAvecNom.couleur})
                 `;
                 console.log(`✅ Tâche créée sans code (colonne code non disponible)`);
                 console.warn(`⚠️ La colonne 'code' n'existe pas encore. Exécutez: ALTER TABLE tache_projet ADD COLUMN IF NOT EXISTS code VARCHAR(20);`);
@@ -753,7 +918,7 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
               try {
                 await tx.$executeRaw`
                   INSERT INTO tache_projet (projet_id, tache_type_id, heures_prevues, taux_horaire, nom_tache, couleur)
-                  VALUES (${id}, NULL, ${tacheAvecNom.heures_prevues}, 50, ${tacheAvecNom.nom_tache}, ${tacheAvecNom.couleur})
+                  VALUES (${id}, ${autoTypeId}, ${tacheAvecNom.heures_prevues}, 50, ${tacheAvecNom.nom_tache}, ${tacheAvecNom.couleur})
                 `;
                 console.log(`✅ Tâche créée avec SQL brut (fallback)`);
               } catch (sqlError: any) {
@@ -767,7 +932,18 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
         }
 
         // Ajouter les nouvelles tâches avec type global
-        // Ne pas sauvegarder de couleur, elle viendra du tache_type
+        // Par défaut, la couleur doit être celle du `tache_type` (cohérente entre projets).
+        // On ne la surcharge que si une couleur explicite est fournie.
+        const tacheTypeCouleurs: Record<number, string> = {};
+        if (tachesAAjouter.length > 0) {
+          const types = await tx.tacheType.findMany({
+            where: { id: { in: tachesAAjouter.map((x) => BigInt(x)) } },
+            select: { id: true, couleur: true }
+          });
+          types.forEach((tt) => {
+            tacheTypeCouleurs[Number(tt.id)] = (tt.couleur || '#10B981') as any;
+          });
+        }
         for (const tacheTypeId of tachesAAjouter) {
           await tx.tacheProjet.create({
             data: {
@@ -775,7 +951,12 @@ router.put('/:id', authMiddleware, managerMiddleware, async (req: AuthRequest, r
               tache_type_id: BigInt(tacheTypeId),
               heures_prevues: heuresParTache[tacheTypeId] || 0,
               taux_horaire: 50,
-              couleur: null // Pas de couleur personnalisée, utiliser celle du tache_type
+              nom_tache: nomsParTacheTypeId[tacheTypeId] || null,
+              code: codesParTacheTypeId[tacheTypeId] || null,
+              couleur:
+                couleursParTacheTypeId[tacheTypeId] ||
+                tacheTypeCouleurs[tacheTypeId] ||
+                null
             }
           });
         }
@@ -1161,11 +1342,33 @@ router.delete('/:id/affectations/:affectationId', authMiddleware, managerMiddlew
       where: {
         id: affectation_id,
         projet_id: projet_id
+      },
+      include: {
+        tache_projet: {
+          select: { tache_type_id: true }
+        }
       }
     });
 
     if (!affectation) {
       return res.status(404).json({ error: 'Affectation non trouvée pour ce projet' });
+    }
+
+    // Bloquer la suppression si des pointages existent sur cette tâche pour ce salarié
+    // (Le pointage est lié à tache_type_id, donc on le dérive depuis l'affectation ou la tâche projet)
+    const derivedTacheTypeId = affectation.tache_type_id ?? affectation.tache_projet?.tache_type_id ?? null;
+    if (derivedTacheTypeId) {
+      const countPointages = await prisma.salariePointage.count({
+        where: {
+          projet_id,
+          salarie_id: affectation.salarie_id,
+          tache_type_id: derivedTacheTypeId,
+        }
+      });
+
+      if (countPointages > 0) {
+        return res.status(400).json({ error: 'Impossible : il y a des pointages sur cette tâche' });
+      }
     }
 
     // Supprimer l'affectation

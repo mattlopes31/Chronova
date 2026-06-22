@@ -10,6 +10,7 @@ import {
   Building2,
   Calendar,
   CalendarDays,
+  Flag,
   Settings,
   LogOut,
   Menu,
@@ -17,9 +18,11 @@ import {
   ChevronDown,
   Bell,
   CheckCircle,
+  Trash2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { dashboardApi } from '@/services/api';
+import toast from 'react-hot-toast';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -57,6 +60,20 @@ export const Layout = ({ children }: LayoutProps) => {
     },
   });
 
+  const readCount = notifications.filter((n: any) => n.lu).length;
+
+  const deleteReadNotificationsMutation = useMutation({
+    mutationFn: () => dashboardApi.supprimerNotificationsLues(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      const n = data?.count ?? 0;
+      if (n > 0) toast.success(`${n} notification${n > 1 ? 's' : ''} lue${n > 1 ? 's' : ''} supprimée${n > 1 ? 's' : ''}`);
+    },
+    onError: () => {
+      toast.error('Impossible de supprimer les notifications lues');
+    },
+  });
+
   const isAdmin = user?.role === 'Admin';
   const isManager = user?.role === 'Manager' || isAdmin;
 
@@ -74,6 +91,7 @@ export const Layout = ({ children }: LayoutProps) => {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Calendrier', href: '/calendrier', icon: Calendar },
     { name: 'Calendrier view', href: '/calendrier-view', icon: CalendarDays },
+    { name: 'Jours fériés', href: '/admin/jours-feries', icon: Flag },
     { name: 'Validations', href: '/validations', icon: CheckCircle },
     { name: 'Détails projets', href: '/projets-details', icon: FolderKanban },
     { name: 'Projets', href: '/projets', icon: FolderKanban },
@@ -226,11 +244,30 @@ export const Layout = ({ children }: LayoutProps) => {
                       onClick={() => setNotificationsOpen(false)}
                     />
                     <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-96 overflow-hidden flex flex-col">
-                      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                        <h3 className="font-semibold text-gray-900">Notifications</h3>
-                        {unreadCount > 0 && (
-                          <span className="text-xs text-gray-500">{unreadCount} non lue{unreadCount > 1 ? 's' : ''}</span>
-                        )}
+                      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-2">
+                        <h3 className="font-semibold text-gray-900 shrink-0">Notifications</h3>
+                        <div className="flex items-center gap-2">
+                          {unreadCount > 0 && (
+                            <span className="text-xs text-gray-500 whitespace-nowrap">
+                              {unreadCount} non lue{unreadCount > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {readCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteReadNotificationsMutation.mutate();
+                              }}
+                              disabled={deleteReadNotificationsMutation.isPending}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                              title="Supprimer les notifications déjà lues"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Effacer lues
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="overflow-y-auto">
                         {notifications.length === 0 ? (

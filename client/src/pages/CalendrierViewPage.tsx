@@ -33,12 +33,47 @@ import {
   addDays,
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { getMondayOfWeek } from '@/utils/dates';
-import type { SalariePointage, Salarie, SalarieCp, ValidationSemaine } from '@/types';
+import { getMondayOfWeek, formatDureeQuart } from '@/utils/dates';
+import { computeFeriePourSemaine } from '@/utils/joursFeries';
+import type { SalariePointage, Salarie, SalarieCp, ValidationSemaine, JourFerie } from '@/types';
 
 const HEURES_SEMAINE_NORMALE = 35;
 const HEURES_CP_PAR_JOUR = 7;
 const MAX_HEURES_DECLAREES = 45; // Maximum d'heures déclarées par semaine
+
+type WeekState = {
+  status: ValidationSemaine['status'];
+  label: string;
+  badgeVariant: 'success' | 'info' | 'danger' | 'default';
+};
+
+function getWeekStateFromPointages(pointages: SalariePointage[] = []): WeekState {
+  // On déduit l'état de la semaine à partir du statut des pointages.
+  // En cas de plusieurs statuts (idéalement impossible), on priorise Rejete > Valide > Soumis > Brouillon.
+  const statuses = pointages.map((p) => p.validation_status);
+  const hasRejete = statuses.includes('Rejete');
+  const hasValide = statuses.includes('Valide');
+  const hasSoumis = statuses.includes('Soumis');
+
+  const status: ValidationSemaine['status'] = hasRejete
+    ? 'Rejete'
+    : hasValide
+      ? 'Valide'
+      : hasSoumis
+        ? 'Soumis'
+        : 'Brouillon';
+
+  if (status === 'Valide') {
+    return { status, label: 'Validée', badgeVariant: 'success' };
+  }
+  if (status === 'Soumis') {
+    return { status, label: 'En attente', badgeVariant: 'info' };
+  }
+  if (status === 'Rejete') {
+    return { status, label: 'Rejetée', badgeVariant: 'danger' };
+  }
+  return { status, label: 'Brouillon', badgeVariant: 'default' };
+}
 
 interface SemaineData {
   year: number;
@@ -47,14 +82,129 @@ interface SemaineData {
   pointages: SalariePointage[];
   conges: SalarieCp | null;
   validation: ValidationSemaine | null;
-  joursFeries: any[];
+}
+
+const JOURS_KEYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
+
+function calculateWeekData(data: SemaineData, joursFeriesAll: JourFerie[]) {
+  const { pointages, conges } = data;
+
+  const heuresParJour = {
+    lundi: 0,
+    mardi: 0,
+    mercredi: 0,
+    jeudi: 0,
+    vendredi: 0,
+    samedi: 0,
+    dimanche: 0,
+  };
+
+  pointages.forEach((p: SalariePointage) => {
+    heuresParJour.lundi += Number(p.heure_lundi || 0);
+    heuresParJour.mardi += Number(p.heure_mardi || 0);
+    heuresParJour.mercredi += Number(p.heure_mercredi || 0);
+    heuresParJour.jeudi += Number(p.heure_jeudi || 0);
+    heuresParJour.vendredi += Number(p.heure_vendredi || 0);
+    heuresParJour.samedi += Number(p.heure_samedi || 0);
+    heuresParJour.dimanche += Number(p.heure_dimanche || 0);
+  });
+
+  const heuresTravaillees = Object.values(heuresParJour).reduce((sum, h) => sum + h, 0);
+
+  const monday = getMondayOfWeek(data.year, data.week);
+  const joursSemaine = JOURS_KEYS.map((_, i) => addDays(monday, i));
+  const ferieBloc = computeFeriePourSemaine(joursSemaine, heuresParJour, joursFeriesAll, HEURES_CP_PAR_JOUR);
+  const { nbFeries, creditFerie, heuresTravailJoursFeries, heuresTravailSansFerie } = ferieBloc;
+
+  const ferieParJour: Record<(typeof JOURS_KEYS)[number], boolean> = {
+    lundi: false,
+    mardi: false,
+    mercredi: false,
+    jeudi: false,
+    vendredi: false,
+    samedi: false,
+    dimanche: false,
+  };
+  const ferieDates = new Set(joursFeriesAll.map((j) => String(j.date).split('T')[0]));
+  JOURS_KEYS.forEach((jour, i) => {
+    const dk = format(addDays(monday, i), 'yyyy-MM-dd');
+    ferieParJour[jour] = ferieDates.has(dk);
+  });
+
+  let joursCP = 0;
+  let joursMaladie = 0;
+
+  if (conges) {
+    const typeLundi = (conges as any).type_lundi || conges.type_conge;
+    const typeMardi = (conges as any).type_mardi || conges.type_conge;
+    const typeMercredi = (conges as any).type_mercredi || conges.type_conge;
+    const typeJeudi = (conges as any).type_jeudi || conges.type_conge;
+    const typeVendredi = (conges as any).type_vendredi || conges.type_conge;
+
+    if (conges.cp_lundi) {
+      if (typeLundi === 'CP') joursCP++;
+      if (typeLundi === 'Maladie') joursMaladie++;
+    }
+    if (conges.cp_mardi) {
+      if (typeMardi === 'CP') joursCP++;
+      if (typeMardi === 'Maladie') joursMaladie++;
+    }
+    if (conges.cp_mercredi) {
+      if (typeMercredi === 'CP') joursCP++;
+      if (typeMercredi === 'Maladie') joursMaladie++;
+    }
+    if (conges.cp_jeudi) {
+      if (typeJeudi === 'CP') joursCP++;
+      if (typeJeudi === 'Maladie') joursMaladie++;
+    }
+    if (conges.cp_vendredi) {
+      if (typeVendredi === 'CP') joursCP++;
+      if (typeVendredi === 'Maladie') joursMaladie++;
+    }
+  }
+
+  const heuresCP = joursCP * HEURES_CP_PAR_JOUR;
+  const heuresMaladie = joursMaladie * HEURES_CP_PAR_JOUR;
+
+  // Règle métier :
+  // - un jour férié non travaillé crédite 7h (compte dans l'objectif hebdo)
+  // - les heures réellement travaillées un jour férié sont comptées en "sup"
+  // - l'objectif "Normales" reste fixe à 35h (on ne le baisse pas à 28h en cas de férié)
+  const totalSemaine = heuresTravailSansFerie + heuresCP + creditFerie;
+  const heuresNormalesRequises = HEURES_SEMAINE_NORMALE;
+
+  const heuresNormales = Math.min(totalSemaine, heuresNormalesRequises);
+  const heuresSup = heuresTravailJoursFeries + Math.max(0, totalSemaine - heuresNormalesRequises);
+  const heuresDues = Math.max(0, heuresNormalesRequises - totalSemaine) + heuresMaladie;
+
+  const heuresDeclarees = Math.min(heuresTravaillees + heuresCP + creditFerie, MAX_HEURES_DECLAREES);
+
+  const soldeADeclarer = heuresTravaillees + heuresCP + creditFerie - heuresDeclarees;
+
+  return {
+    heuresParJour,
+    heuresTravaillees,
+    heuresTravailleesBrutes: heuresTravaillees,
+    joursCP,
+    heuresCP,
+    joursMaladie,
+    heuresMaladie,
+    totalSemaine,
+    heuresNormales,
+    heuresSup,
+    heuresDues,
+    heuresDeclarees,
+    soldeADeclarer,
+    ferieParJour,
+    nbFeries,
+  };
 }
 
 export const CalendrierViewPage = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedSalarie, setSelectedSalarie] = useState<string>('');
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
 
   const currentMonth = currentDate.getMonth() + 1;
   const currentYear = currentDate.getFullYear();
@@ -116,9 +266,6 @@ export const CalendrierViewPage = () => {
           // Récupérer la validation
           const validation = null; // À implémenter si nécessaire
 
-          // Récupérer les jours fériés
-          const joursFeries: any[] = []; // À récupérer si nécessaire
-
           allData.push({
             year,
             week,
@@ -126,7 +273,6 @@ export const CalendrierViewPage = () => {
             pointages: pointages || [],
             conges,
             validation,
-            joursFeries,
           });
         } catch (error) {
           console.error(`Erreur récupération données semaine ${week}/${year} pour ${salarie.nom}:`, error);
@@ -138,104 +284,21 @@ export const CalendrierViewPage = () => {
     enabled: uniqueWeeks.length > 0 && selectedSalarie !== '',
   });
 
-  // Calculer les données pour une semaine
-  const calculateWeekData = (data: SemaineData) => {
-    const { pointages, conges } = data;
+  const yearsForFeries = useMemo(() => {
+    const s = new Set<number>();
+    uniqueWeeks.forEach((w) => s.add(w.year));
+    s.add(currentYear);
+    return [...s].sort();
+  }, [uniqueWeeks, currentYear]);
 
-    // Calculer les heures par jour
-    const heuresParJour = {
-      lundi: 0,
-      mardi: 0,
-      mercredi: 0,
-      jeudi: 0,
-      vendredi: 0,
-      samedi: 0,
-      dimanche: 0,
-    };
-
-    pointages.forEach((p: SalariePointage) => {
-      heuresParJour.lundi += Number(p.heure_lundi || 0);
-      heuresParJour.mardi += Number(p.heure_mardi || 0);
-      heuresParJour.mercredi += Number(p.heure_mercredi || 0);
-      heuresParJour.jeudi += Number(p.heure_jeudi || 0);
-      heuresParJour.vendredi += Number(p.heure_vendredi || 0);
-      heuresParJour.samedi += Number(p.heure_samedi || 0);
-      heuresParJour.dimanche += Number(p.heure_dimanche || 0);
-    });
-
-    // Total heures travaillées
-    const heuresTravaillees = Object.values(heuresParJour).reduce((sum, h) => sum + h, 0);
-
-    // Calculer les congés
-    let joursCP = 0;
-    let joursMaladie = 0;
-    
-    if (conges) {
-      // Vérifier chaque jour avec son type spécifique si disponible
-      const typeLundi = (conges as any).type_lundi || conges.type_conge;
-      const typeMardi = (conges as any).type_mardi || conges.type_conge;
-      const typeMercredi = (conges as any).type_mercredi || conges.type_conge;
-      const typeJeudi = (conges as any).type_jeudi || conges.type_conge;
-      const typeVendredi = (conges as any).type_vendredi || conges.type_conge;
-
-      if (conges.cp_lundi) {
-        if (typeLundi === 'CP') joursCP++;
-        if (typeLundi === 'Maladie') joursMaladie++;
-      }
-      if (conges.cp_mardi) {
-        if (typeMardi === 'CP') joursCP++;
-        if (typeMardi === 'Maladie') joursMaladie++;
-      }
-      if (conges.cp_mercredi) {
-        if (typeMercredi === 'CP') joursCP++;
-        if (typeMercredi === 'Maladie') joursMaladie++;
-      }
-      if (conges.cp_jeudi) {
-        if (typeJeudi === 'CP') joursCP++;
-        if (typeJeudi === 'Maladie') joursMaladie++;
-      }
-      if (conges.cp_vendredi) {
-        if (typeVendredi === 'CP') joursCP++;
-        if (typeVendredi === 'Maladie') joursMaladie++;
-      }
-    }
-
-    const heuresCP = joursCP * HEURES_CP_PAR_JOUR;
-    const heuresMaladie = joursMaladie * HEURES_CP_PAR_JOUR;
-
-    // Total semaine = heures travaillées + CP
-    const totalSemaine = heuresTravaillees + heuresCP;
-
-    // Heures normales (max 35h par semaine)
-    const heuresNormales = Math.min(totalSemaine, HEURES_SEMAINE_NORMALE);
-
-    // Heures supplémentaires (au-delà de 35h)
-    const heuresSup = Math.max(0, totalSemaine - HEURES_SEMAINE_NORMALE);
-
-    // Heures dues (si moins de 35h)
-    const heuresDues = Math.max(0, HEURES_SEMAINE_NORMALE - totalSemaine) + heuresMaladie;
-
-    // Heures déclarées (limitées à MAX_HEURES_DECLAREES)
-    const heuresDeclarees = Math.min(totalSemaine, MAX_HEURES_DECLAREES);
-
-    // Solde à déclarer (différence entre total et heures déclarées)
-    const soldeADeclarer = totalSemaine - heuresDeclarees;
-
-    return {
-      heuresParJour,
-      heuresTravaillees,
-      joursCP,
-      heuresCP,
-      joursMaladie,
-      heuresMaladie,
-      totalSemaine,
-      heuresNormales,
-      heuresSup,
-      heuresDues,
-      heuresDeclarees,
-      soldeADeclarer,
-    };
-  };
+  const { data: joursFeriesAll = [] } = useQuery({
+    queryKey: ['jours-feries-cal-view', yearsForFeries.join(',')],
+    queryFn: async () => {
+      const lists = await Promise.all(yearsForFeries.map((y) => congesApi.getJoursFeries(y)));
+      return lists.flat();
+    },
+    enabled: yearsForFeries.length > 0,
+  });
 
   // Trier les semaines par ordre chronologique
   const semainesTriees = useMemo(() => {
@@ -248,7 +311,7 @@ export const CalendrierViewPage = () => {
   // Calculer les totaux du mois
   const totalsMois = useMemo(() => {
     return semainesTriees.reduce((acc, semaineData) => {
-      const calculs = calculateWeekData(semaineData);
+      const calculs = calculateWeekData(semaineData, joursFeriesAll);
       return {
         totalHeures: acc.totalHeures + calculs.heuresTravaillees,
         totalCP: acc.totalCP + calculs.heuresCP,
@@ -265,7 +328,7 @@ export const CalendrierViewPage = () => {
       totalDues: 0,
       totalDeclarees: 0,
     });
-  }, [semainesTriees]);
+  }, [semainesTriees, joursFeriesAll]);
 
   const goToPreviousMonth = () => {
     setCurrentDate(subMonths(currentDate, 1));
@@ -295,7 +358,7 @@ export const CalendrierViewPage = () => {
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Vue Calendrier</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Détail salarié</h1>
             <p className="text-gray-600 mt-1">Consultez les pointages détaillés par semaine</p>
           </div>
           <div className="flex items-center gap-2">
@@ -394,42 +457,42 @@ export const CalendrierViewPage = () => {
                 <Clock className="w-4 h-4 text-blue-500" />
                 <span className="text-xs text-gray-500">Heures totales</span>
               </div>
-              <div className="text-2xl font-bold text-gray-900">{totalsMois.totalHeures.toFixed(1)}h</div>
+              <div className="text-2xl font-bold text-gray-900">{formatDureeQuart(totalsMois.totalHeures)}</div>
             </Card>
             <Card className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-green-500" />
                 <span className="text-xs text-gray-500">Heures sup</span>
               </div>
-              <div className="text-2xl font-bold text-green-600">{totalsMois.totalSup.toFixed(1)}h</div>
+              <div className="text-2xl font-bold text-green-600">{formatDureeQuart(totalsMois.totalSup)}</div>
             </Card>
             <Card className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingDown className="w-4 h-4 text-red-500" />
                 <span className="text-xs text-gray-500">Heures dues</span>
               </div>
-              <div className="text-2xl font-bold text-red-600">{totalsMois.totalDues.toFixed(1)}h</div>
+              <div className="text-2xl font-bold text-red-600">{formatDureeQuart(totalsMois.totalDues)}</div>
             </Card>
             <Card className="p-4 bg-amber-50 border-amber-200">
               <div className="flex items-center gap-2 mb-2">
                 <Calendar className="w-4 h-4 text-amber-600" />
                 <span className="text-xs text-gray-500">Congés payés</span>
               </div>
-              <div className="text-2xl font-bold text-amber-600">{totalsMois.totalCP.toFixed(1)}h</div>
+              <div className="text-2xl font-bold text-amber-600">{formatDureeQuart(totalsMois.totalCP)}</div>
             </Card>
             <Card className="p-4 bg-blue-50 border-blue-200">
               <div className="flex items-center gap-2 mb-2">
                 <AlertCircle className="w-4 h-4 text-blue-600" />
                 <span className="text-xs text-gray-500">Maladie</span>
               </div>
-              <div className="text-2xl font-bold text-blue-600">{totalsMois.totalMaladie.toFixed(1)}h</div>
+              <div className="text-2xl font-bold text-blue-600">{formatDureeQuart(totalsMois.totalMaladie)}</div>
             </Card>
             <Card className="p-4 bg-indigo-50 border-indigo-200">
               <div className="flex items-center gap-2 mb-2">
                 <Info className="w-4 h-4 text-indigo-600" />
                 <span className="text-xs text-gray-500">Déclarées</span>
               </div>
-              <div className="text-2xl font-bold text-indigo-600">{totalsMois.totalDeclarees.toFixed(1)}h</div>
+              <div className="text-2xl font-bold text-indigo-600">{formatDureeQuart(totalsMois.totalDeclarees)}</div>
             </Card>
           </div>
         )}
@@ -451,7 +514,7 @@ export const CalendrierViewPage = () => {
       ) : viewMode === 'cards' ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {semainesTriees.map((semaineData) => {
-            const calculs = calculateWeekData(semaineData);
+            const calculs = calculateWeekData(semaineData, joursFeriesAll);
             const { year, week, salarie } = semaineData;
             const monday = getMondayOfWeek(year, week);
             const sunday = addDays(monday, 6);
@@ -490,13 +553,13 @@ export const CalendrierViewPage = () => {
                     {calculs.heuresDues > 0 && (
                       <Badge variant="danger" className="text-xs">
                         <AlertCircle className="w-3 h-3" />
-                        {calculs.heuresDues.toFixed(1)}h dues
+                        {formatDureeQuart(calculs.heuresDues)} dues
                       </Badge>
                     )}
                     {calculs.heuresSup > 0 && (
                       <Badge variant="success" className="text-xs">
                         <TrendingUp className="w-3 h-3" />
-                        +{calculs.heuresSup.toFixed(1)}h
+                        +{formatDureeQuart(calculs.heuresSup)}
                       </Badge>
                     )}
                     {semaineData.validation?.status === 'Valide' && (
@@ -512,30 +575,38 @@ export const CalendrierViewPage = () => {
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <div className="text-center p-3 bg-blue-50 rounded-lg">
                     <div className="text-xs text-gray-500 mb-1">Total</div>
-                    <div className="text-xl font-bold text-blue-700">{calculs.totalSemaine.toFixed(1)}h</div>
+                    <div className="text-xl font-bold text-blue-700">{formatDureeQuart(calculs.totalSemaine)}</div>
                   </div>
                   <div className="text-center p-3 bg-green-50 rounded-lg">
                     <div className="text-xs text-gray-500 mb-1">Normales</div>
-                    <div className="text-xl font-bold text-green-700">{calculs.heuresNormales.toFixed(1)}h</div>
+                    <div className="text-xl font-bold text-green-700">{formatDureeQuart(calculs.heuresNormales)}</div>
                   </div>
                   <div className="text-center p-3 bg-indigo-50 rounded-lg">
                     <div className="text-xs text-gray-500 mb-1">Déclarées</div>
-                    <div className="text-xl font-bold text-indigo-700">{calculs.heuresDeclarees.toFixed(1)}h</div>
+                    <div className="text-xl font-bold text-indigo-700">{formatDureeQuart(calculs.heuresDeclarees)}</div>
                   </div>
                 </div>
 
                 {/* Détails des jours (toujours visibles) */}
                 <div className="grid grid-cols-7 gap-1 mb-4">
                   {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((jour, idx) => {
-                    const heures = Object.values(calculs.heuresParJour)[idx];
+                    const jk = JOURS_KEYS[idx];
+                    const heures = calculs.heuresParJour[jk];
+                    const isFerie = calculs.ferieParJour[jk];
                     return (
-                      <div key={jour} className="text-center">
+                      <div key={`${weekKey}-d${idx}`} className="text-center">
                         <div className="text-xs text-gray-500 mb-1">{jour}</div>
-                        <div className={clsx(
-                          'text-sm font-semibold p-2 rounded',
-                          heures > 0 ? 'bg-primary-100 text-primary-700' : 'bg-gray-50 text-gray-400'
-                        )}>
-                          {heures.toFixed(1)}
+                        <div
+                          className={clsx(
+                            'text-sm font-semibold p-2 rounded',
+                            isFerie
+                              ? 'bg-red-50 text-red-700 ring-1 ring-red-200'
+                              : heures > 0
+                                ? 'bg-primary-100 text-primary-700'
+                                : 'bg-gray-50 text-gray-400'
+                          )}
+                        >
+                          {formatDureeQuart(heures)}
                         </div>
                       </div>
                     );
@@ -563,7 +634,7 @@ export const CalendrierViewPage = () => {
                       <div className="p-3 bg-red-50 rounded-lg">
                         <div className="text-xs text-gray-500 mb-1">Heures dues</div>
                         <div className="text-lg font-semibold text-red-700">
-                          {calculs.heuresDues > 0 ? `-${calculs.heuresDues.toFixed(1)}h` : '0h'}
+                          {calculs.heuresDues > 0 ? `-${formatDureeQuart(calculs.heuresDues).replace('-', '')}` : '0'}
                         </div>
                       </div>
                       <div className="p-3 bg-orange-50 rounded-lg">
@@ -572,7 +643,7 @@ export const CalendrierViewPage = () => {
                           'text-lg font-semibold',
                           calculs.soldeADeclarer > 0 ? 'text-orange-700' : 'text-gray-600'
                         )}>
-                          {calculs.soldeADeclarer > 0 ? `+${calculs.soldeADeclarer.toFixed(1)}h` : '0h'}
+                          {calculs.soldeADeclarer > 0 ? `+${formatDureeQuart(calculs.soldeADeclarer)}` : '0'}
                         </div>
                       </div>
                     </div>
@@ -608,6 +679,7 @@ export const CalendrierViewPage = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">Semaine</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700 border-r">État</th>
                   <th className="px-3 py-3 text-center font-semibold text-gray-700 border-r">L</th>
                   <th className="px-3 py-3 text-center font-semibold text-gray-700 border-r">M</th>
                   <th className="px-3 py-3 text-center font-semibold text-gray-700 border-r">M</th>
@@ -627,10 +699,11 @@ export const CalendrierViewPage = () => {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {semainesTriees.map((semaineData) => {
-                  const calculs = calculateWeekData(semaineData);
+                  const calculs = calculateWeekData(semaineData, joursFeriesAll);
                   const { year, week } = semaineData;
                   const monday = getMondayOfWeek(year, week);
                   const sunday = addDays(monday, 6);
+                  const weekState = getWeekStateFromPointages(semaineData.pointages);
 
                   return (
                     <tr key={`${year}-${week}`} className="hover:bg-gray-50">
@@ -640,16 +713,25 @@ export const CalendrierViewPage = () => {
                           {format(monday, 'dd/MM', { locale: fr })} - {format(sunday, 'dd/MM', { locale: fr })}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.lundi.toFixed(1) || '0'}</td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.mardi.toFixed(1) || '0'}</td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.mercredi.toFixed(1) || '0'}</td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.jeudi.toFixed(1) || '0'}</td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.vendredi.toFixed(1) || '0'}</td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.samedi.toFixed(1) || '0'}</td>
-                      <td className="px-3 py-3 text-center border-r">{calculs.heuresParJour.dimanche.toFixed(1) || '0'}</td>
-                      <td className="px-4 py-3 text-right font-medium border-r">{calculs.totalSemaine.toFixed(1)}</td>
-                      <td className="px-4 py-3 text-right font-medium border-r">{calculs.heuresNormales.toFixed(1)}</td>
-                      <td className="px-4 py-3 text-right font-medium border-r">{calculs.heuresSup.toFixed(1)}</td>
+                      <td className="px-4 py-3 border-r">
+                        <Badge variant={weekState.badgeVariant}>
+                          {weekState.label}
+                        </Badge>
+                      </td>
+                      {JOURS_KEYS.map((jk) => (
+                        <td
+                          key={jk}
+                          className={clsx(
+                            'px-3 py-3 text-center border-r',
+                            calculs.ferieParJour[jk] && 'bg-red-50 text-red-800 font-medium'
+                          )}
+                        >
+                          {formatDureeQuart(calculs.heuresParJour[jk])}
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.totalSemaine)}</td>
+                      <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.heuresNormales)}</td>
+                      <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.heuresSup)}</td>
                       <td className="px-4 py-3 text-right border-r">
                         {calculs.joursCP > 0 ? `${calculs.joursCP}j` : '-'}
                       </td>
@@ -658,15 +740,15 @@ export const CalendrierViewPage = () => {
                       </td>
                       <td className="px-4 py-3 text-right font-medium border-r">
                         <span className={calculs.heuresDues > 0 ? 'text-red-600' : 'text-gray-600'}>
-                          {calculs.heuresDues > 0 ? `-${calculs.heuresDues.toFixed(1)}` : '0'}
+                          {calculs.heuresDues > 0 ? `-${formatDureeQuart(calculs.heuresDues).replace('-', '')}` : '0'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-medium bg-blue-50 text-blue-700 border-r">
-                        {calculs.heuresDeclarees.toFixed(1)}
+                        {formatDureeQuart(calculs.heuresDeclarees)}
                       </td>
                       <td className="px-4 py-3 text-right font-medium">
                         <span className={calculs.soldeADeclarer > 0 ? 'text-orange-600' : 'text-gray-600'}>
-                          {calculs.soldeADeclarer > 0 ? `+${calculs.soldeADeclarer.toFixed(1)}` : '0'}
+                          {calculs.soldeADeclarer > 0 ? `+${formatDureeQuart(calculs.soldeADeclarer)}` : '0'}
                         </span>
                       </td>
                     </tr>

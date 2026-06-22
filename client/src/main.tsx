@@ -16,6 +16,7 @@ import { ClientsPage } from '@/pages/ClientsPage';
 import { MesCongesPage } from '@/pages/MesCongesPage';
 import { CalendrierPage } from '@/pages/CalendrierPage';
 import { CalendrierViewPage } from '@/pages/CalendrierViewPage';
+import { JoursFeriesPage } from '@/pages/JoursFeriesPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -181,6 +182,14 @@ const App = () => {
           element={
             <ProtectedRoute adminOnly>
               <CalendrierViewPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/jours-feries"
+          element={
+            <ProtectedRoute adminOnly>
+              <JoursFeriesPage />
             </ProtectedRoute>
           }
         />

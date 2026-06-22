@@ -2,9 +2,8 @@
 -- CHRONOVA - Script de création de base de données
 -- PostgreSQL 15+
 -- =====================================================
--- Connexion: 127.0.0.1:5432
+-- Connexion: 192.168.123.6:5432
 -- Utilisateur: postgres
--- Mot de passe: root
 -- Base de données: Chronova_db
 -- =====================================================
 
@@ -598,6 +597,7 @@ INSERT INTO jour_ferie (date, nom) VALUES
 ('2025-12-25', 'Noël'),
 -- 2026
 ('2026-01-01', 'Jour de l''An'),
+('2026-04-01', '1er avril'),
 ('2026-04-06', 'Lundi de Pâques'),
 ('2026-05-01', 'Fête du Travail'),
 ('2026-05-08', 'Victoire 1945'),

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { projetsApi } from '@/services/api';
 import { ChevronDown, ChevronRight, FolderKanban, Clock, Users, TrendingUp, TrendingDown } from 'lucide-react';
 import { useState } from 'react';
+import { sortTachesByCode } from '@/utils/taches';
 
 interface TacheDetail {
   id: string;
@@ -206,12 +207,7 @@ export const ProjetsDetailsPage = () => {
                           <tbody className="bg-white divide-y divide-gray-200">
                             {projet.taches
                               .slice()
-                              .sort((a, b) => {
-                                // Trier par nom de tâche en ordre alphabétique
-                                const nomA = a.tache_type || '';
-                                const nomB = b.tache_type || '';
-                                return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
-                              })
+                              .sort(sortTachesByCode)
                               .map((tache) => (
                               <tr key={tache.id} className="hover:bg-gray-50">
                                 <td className="px-6 py-4 whitespace-nowrap">

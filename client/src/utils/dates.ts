@@ -33,6 +33,23 @@ export const getMondayOfWeek = (year: number, week: number): Date => {
   }
 };
 
+/**
+ * Lundi–dimanche à partir de la chaîne `YYYY-MM-DD` renvoyée par l’API pointage (`dates.lundi`),
+ * même règle calendrier que le serveur (jours en UTC midi pour éviter les bords DST).
+ */
+export function getWeekDaysFromApiMonday(lundiIso: string): Date[] {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(lundiIso).trim());
+  if (!m) return [];
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const days: Date[] = [];
+  for (let i = 0; i < 7; i++) {
+    days.push(new Date(Date.UTC(y, mo - 1, d + i, 12, 0, 0)));
+  }
+  return days;
+}
+
 // Obtenir les jours de la semaine (lundi à dimanche)
 export const getWeekDays = (year: number, week: number): Date[] => {
   try {
@@ -101,6 +118,51 @@ export const formatWeekLabel = (year: number, week: number): string => {
     console.warn('formatWeekLabel error:', e);
     return `Semaine ${week}`;
   }
+};
+
+// Formatage heures en quart d'heure (ex: 35.5 -> 35h30)
+export const formatHeuresQuart = (heures: number | string | null | undefined): string => {
+  if (heures === null || heures === undefined || heures === '') return '0h';
+  const n = typeof heures === 'string' ? parseFloat(heures.replace(',', '.')) : Number(heures);
+  if (!isFinite(n) || isNaN(n)) return '0h';
+
+  // Arrondir au quart d'heure
+  const rounded = Math.round(n * 4) / 4;
+  const sign = rounded < 0 ? '-' : '';
+  const abs = Math.abs(rounded);
+
+  let h = Math.floor(abs);
+  let m = Math.round((abs - h) * 60);
+  // Sécuriser un éventuel 60min dû aux arrondis
+  if (m === 60) {
+    h += 1;
+    m = 0;
+  }
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h${String(m).padStart(2, '0')}`;
+};
+
+// Format "durée" en quart d'heure (ex: 0.5 -> 30min, 1 -> 1h, 1.5 -> 1h30)
+export const formatDureeQuart = (heures: number | string | null | undefined): string => {
+  if (heures === null || heures === undefined || heures === '') return '0';
+  const n = typeof heures === 'string' ? parseFloat(heures.replace(',', '.')) : Number(heures);
+  if (!isFinite(n) || isNaN(n)) return '0';
+
+  const rounded = Math.round(n * 4) / 4;
+  if (rounded === 0) return '0';
+  const sign = rounded < 0 ? '-' : '';
+  const abs = Math.abs(rounded);
+
+  let h = Math.floor(abs);
+  let m = Math.round((abs - h) * 60);
+  if (m === 60) {
+    h += 1;
+    m = 0;
+  }
+
+  if (h === 0) return `${sign}${m}min`;
+  if (m === 0) return `${sign}${h}h`;
+  return `${sign}${h}h${String(m).padStart(2, '0')}`;
 };
 
 export const getDayName = (dayIndex: number): string => {

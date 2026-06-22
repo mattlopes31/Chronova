@@ -12,6 +12,7 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
+    allowedHosts: ['be', '192.168.123.7', 'localhost'],
     proxy: {
       '/api': {
         // En Docker, utiliser le nom du service (api)

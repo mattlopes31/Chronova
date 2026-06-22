@@ -11,14 +11,171 @@ const serializeBigInt = (obj: any): any => {
   ));
 };
 
-// Calculer le lundi d'une semaine ISO
-function getMondayOfWeek(year: number, week: number): Date {
-  const jan4 = new Date(year, 0, 4);
-  const dayOfWeek = jan4.getDay() || 7;
-  const monday = new Date(jan4);
-  monday.setDate(jan4.getDate() - dayOfWeek + 1 + (week - 1) * 7);
-  return monday;
+// Tente de lier une tâche "custom" à un type global existant (sinon crée un type global).
+async function resolveTacheTypeId(
+  tx: any,
+  data: { code?: string | null; nom_tache?: string | null; couleur?: string | null }
+): Promise<bigint | null> {
+  const code = (data.code || '').trim();
+  const nom = (data.nom_tache || '').trim();
+  const nomFinal = nom || code;
+  const couleurFinal = (data.couleur || '').trim() || '#10B981';
+
+  if (code) {
+    const byCode = await tx.tacheType.findFirst({
+      where: { code },
+      select: { id: true }
+    });
+    if (byCode) return byCode.id;
+
+    // Match robuste: ignorer les zéros de tête (ex: "31" <-> "031")
+    const byCodeNormalized = await tx.$queryRaw<Array<{ id: bigint }>>`
+      SELECT id
+      FROM tache_type
+      WHERE TRIM(LEADING '0' FROM TRIM(code)) = TRIM(LEADING '0' FROM TRIM(${code}))
+      LIMIT 1
+    `;
+    if (byCodeNormalized?.[0]?.id) return byCodeNormalized[0].id;
+  }
+
+  if (nom) {
+    const byName = await tx.tacheType.findFirst({
+      where: { tache_type: nom },
+      select: { id: true }
+    });
+    if (byName) return byName.id;
+
+    const byNameCI = await tx.tacheType.findFirst({
+      where: { tache_type: { equals: nom, mode: 'insensitive' } },
+      select: { id: true }
+    });
+    if (byNameCI) return byNameCI.id;
+  }
+
+  // Si aucune correspondance : créer un type global à partir de la tâche.
+  // En pratique on préfère `nom`, mais si il est NULL on utilise `code` pour ne pas bloquer le pointage.
+  if (code) {
+    try {
+      const created = await tx.tacheType.create({
+        data: {
+          tache_type: nomFinal,
+          code,
+          couleur: couleurFinal,
+          is_default: false,
+          is_facturable: true,
+          ordre: 0,
+          actif: true
+        }
+      });
+      return created.id;
+    } catch (err: any) {
+      // Contrainte unique sur `code` possible: re-lire par code.
+      const byCodeAfter = await tx.tacheType.findFirst({
+        where: { code },
+        select: { id: true }
+      });
+      return byCodeAfter?.id ?? null;
+    }
+  }
+
+  return null;
 }
+
+/**
+ * Lundi de la semaine ISO (lundi = premier jour), aligné sur la même règle que le client (date-fns, semaine contenant le 4 janvier).
+ * Stockage en **UTC minuit** sur le jour civil du lundi : évite qu'en Europe (ex. Paris) `new Date(y,m,d)` soit interprété
+ * en UTC comme la veille dans MySQL DATE, ce qui décalait tout le calendrier d’un jour.
+ */
+function getMondayOfWeek(year: number, week: number): Date {
+  const jan4Utc = Date.UTC(year, 0, 4);
+  const jan4 = new Date(jan4Utc);
+  const offsetDaysSinceMonday = (jan4.getUTCDay() + 6) % 7;
+  const week1MondayUtc = jan4Utc - offsetDaysSinceMonday * 24 * 60 * 60 * 1000;
+  const mondayUtc = week1MondayUtc + (week - 1) * 7 * 24 * 60 * 60 * 1000;
+  return new Date(mondayUtc);
+}
+
+function addDaysUTC(date: Date, days: number): Date {
+  const d = new Date(date.getTime());
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function dateKeyUtc(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const JOURS_POINTAGE = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
+
+function motifDeclaresTravailFerie(motif: string | null | undefined): boolean {
+  if (!motif || typeof motif !== 'string') return false;
+  try {
+    const o = JSON.parse(motif);
+    return o?.chronova_tf === 1;
+  } catch {
+    return false;
+  }
+}
+
+function parseTravailFerieDepMotif(
+  motif: string | null | undefined
+): Record<(typeof JOURS_POINTAGE)[number], boolean> {
+  const def: Record<(typeof JOURS_POINTAGE)[number], boolean> = {
+    lundi: false,
+    mardi: false,
+    mercredi: false,
+    jeudi: false,
+    vendredi: false,
+    samedi: false,
+    dimanche: false,
+  };
+  if (!motifDeclaresTravailFerie(motif)) return def;
+  try {
+    const o = JSON.parse(motif as string);
+    const tf = o?.tf;
+    if (!tf || typeof tf !== 'object') return def;
+    for (const j of JOURS_POINTAGE) {
+      if (tf[j] === true) def[j] = true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return def;
+}
+
+/** Crédit 7h par férié non travaillé ; heures saisies sur fériés = heures sup (hors objectif). */
+function computeFerieSemaineServer(
+  monday: Date,
+  heuresParJour: Record<string, number>,
+  joursFeries: { date: Date }[],
+  heuresCredit = 7
+) {
+  const keys = new Set(
+    joursFeries.map((j) => {
+      const d = j.date instanceof Date ? j.date : new Date(j.date as string);
+      return dateKeyUtc(d);
+    })
+  );
+  let nbFeries = 0;
+  let creditFerie = 0;
+  let heuresTravailJoursFeries = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDaysUTC(monday, i);
+    if (!keys.has(dateKeyUtc(d))) continue;
+    nbFeries += 1;
+    const jour = JOURS_POINTAGE[i];
+    const h = Number(heuresParJour[jour] || 0);
+    if (h <= 0) creditFerie += heuresCredit;
+    else heuresTravailJoursFeries += h;
+  }
+  const heuresTravaillees = JOURS_POINTAGE.reduce((s, j) => s + Number(heuresParJour[j] || 0), 0);
+  const heuresTravailSansFerie = heuresTravaillees - heuresTravailJoursFeries;
+  return { nbFeries, creditFerie, heuresTravailJoursFeries, heuresTravailSansFerie, heuresTravaillees };
+}
+
 
 // GET /api/pointages - Liste des pointages
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -127,11 +284,15 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
       cp_mercredi: false,
       cp_jeudi: false,
       cp_vendredi: false,
+      cp_samedi: false,
+      cp_dimanche: false,
       type_lundi: 'CP',
       type_mardi: 'CP',
       type_mercredi: 'CP',
       type_jeudi: 'CP',
       type_vendredi: 'CP',
+      type_samedi: 'CP',
+      type_dimanche: 'CP',
       type_conge: 'CP' // Compatibilité
     };
 
@@ -156,12 +317,25 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
         congesFusionnes.cp_vendredi = true;
         congesFusionnes.type_vendredi = conge.type_conge;
       }
+      if (conge.cp_samedi) {
+        congesFusionnes.cp_samedi = true;
+        congesFusionnes.type_samedi = conge.type_conge;
+      }
+      if (conge.cp_dimanche) {
+        congesFusionnes.cp_dimanche = true;
+        congesFusionnes.type_dimanche = conge.type_conge;
+      }
+    }
+
+    const depCongeFusion = congesListe.find((c) => c.type_conge === 'Deplacement');
+    const tfFusion = parseTravailFerieDepMotif(depCongeFusion?.motif ?? null);
+    for (const j of JOURS_POINTAGE) {
+      (congesFusionnes as any)[`travail_ferie_${j}`] = tfFusion[j];
     }
 
     // Récupérer les jours fériés de la semaine
     const monday = getMondayOfWeek(annee, semaine);
-    const sunday = new Date(monday);
-    sunday.setDate(sunday.getDate() + 6);
+    const sunday = addDaysUTC(monday, 6);
 
     const joursFeries = await prisma.jourFerie.findMany({
       where: {
@@ -172,43 +346,17 @@ router.get('/semaine/:annee/:semaine', authMiddleware, async (req: AuthRequest, 
       }
     });
 
-    // Récupérer le cumul des heures dues des semaines précédentes
-    // On prend la dernière semaine validée OU soumise pour avoir le cumul le plus récent
-    const derniereValidation = await prisma.validationSemaine.findFirst({
-      where: {
-        salarie_id,
-        status: { in: ['Valide', 'Soumis'] }, // Prendre aussi les semaines soumises pour avoir le cumul le plus récent
-        OR: [
-          { annee: { lt: annee } },
-          { annee: annee, semaine: { lt: semaine } }
-        ]
-      },
-      orderBy: [
-        { annee: 'desc' },
-        { semaine: 'desc' }
-      ]
-    });
-
-    // Le cumul est stocké dans heures_dues de la dernière validation
-    // Chaque semaine stocke son cumul final (cumul précédent + heures dues de la semaine - heures rattrapées)
-    const cumulHeuresDues = derniereValidation ? Number(derniereValidation.heures_dues || 0) : 0;
-    
-    console.log('=== GET cumul heures dues ===');
-    console.log('Semaine:', annee, semaine);
-    console.log('Dernière validation trouvée:', derniereValidation ? {
-      annee: derniereValidation.annee,
-      semaine: derniereValidation.semaine,
-      status: derniereValidation.status,
-      heures_dues: derniereValidation.heures_dues?.toString()
-    } : 'Aucune');
-    console.log('Cumul récupéré:', cumulHeuresDues);
-
     res.json({
       pointages: serializeBigInt(pointagesAvecIds),
       validation: validation ? serializeBigInt(validation) : null,
       conges: congesListe.length > 0 ? congesFusionnes : null,
-      jours_feries: serializeBigInt(joursFeries),
-      cumul_heures_dues: cumulHeuresDues,
+      jours_feries: serializeBigInt(
+        joursFeries.map((j) => ({
+          ...j,
+          libelle: j.nom,
+        }))
+      ),
+      cumul_heures_dues: 0,
       dates: {
         lundi: monday.toISOString().split('T')[0],
         dimanche: sunday.toISOString().split('T')[0]
@@ -230,15 +378,60 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     console.log('Salarié ID:', salarie_id.toString());
     console.log('Données reçues:', JSON.stringify(data, null, 2));
 
-    if (!data.projet_id || !data.tache_type_id || !data.annee || !data.semaine) {
+    if (!data.projet_id || !data.annee || !data.semaine || (!data.tache_type_id && !data.tache_projet_id)) {
       console.error('Données manquantes:', { 
         projet_id: data.projet_id, 
-        tache_type_id: data.tache_type_id, 
+        tache_type_id: data.tache_type_id,
+        tache_projet_id: data.tache_projet_id,
         annee: data.annee, 
         semaine: data.semaine 
       });
       return res.status(400).json({ 
-        error: 'Projet, type de tâche, année et semaine requis' 
+        error: 'Projet, année et semaine requis. Fournir soit tache_type_id, soit tache_projet_id.' 
+      });
+    }
+
+    // Résolution de tache_type_id si seulement tache_projet_id est fourni.
+    let finalTacheTypeId: bigint | null = data.tache_type_id ? BigInt(data.tache_type_id) : null;
+    if (!finalTacheTypeId && data.tache_projet_id) {
+      const tpId = BigInt(data.tache_projet_id);
+      const tacheProjet = await prisma.tacheProjet.findUnique({
+        where: { id: tpId },
+        select: { id: true, tache_type_id: true, code: true, nom_tache: true, couleur: true }
+      });
+
+      if (!tacheProjet) {
+        return res.status(400).json({ error: 'tache_projet_id invalide' });
+      }
+
+      finalTacheTypeId = tacheProjet.tache_type_id;
+      if (!finalTacheTypeId) {
+        finalTacheTypeId = await prisma.$transaction(async (tx) => {
+          return resolveTacheTypeId(tx, {
+            code: tacheProjet.code,
+            nom_tache: tacheProjet.nom_tache,
+            couleur: tacheProjet.couleur
+          });
+        });
+      }
+    }
+
+    if (!finalTacheTypeId) {
+      return res.status(400).json({ error: 'Impossible de résoudre tache_type_id' });
+    }
+
+    const validationBlocage = await prisma.validationSemaine.findUnique({
+      where: {
+        salarie_id_annee_semaine: {
+          salarie_id,
+          annee: data.annee,
+          semaine: data.semaine,
+        },
+      },
+    });
+    if (validationBlocage && (validationBlocage.status === 'Soumis' || validationBlocage.status === 'Valide')) {
+      return res.status(400).json({
+        error: 'Cette semaine est soumise ou validée : vous ne pouvez plus modifier le pointage.',
       });
     }
 
@@ -248,7 +441,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     console.log('Tentative upsert avec:', {
       salarie_id: salarie_id.toString(),
       projet_id: data.projet_id,
-      tache_type_id: data.tache_type_id,
+      tache_type_id: finalTacheTypeId.toString(),
       annee: data.annee,
       semaine: data.semaine
     });
@@ -259,7 +452,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         salarie_id_projet_id_tache_type_id_annee_semaine: {
           salarie_id,
           projet_id: BigInt(data.projet_id),
-          tache_type_id: BigInt(data.tache_type_id),
+          tache_type_id: finalTacheTypeId,
           annee: data.annee,
           semaine: data.semaine
         }
@@ -274,6 +467,89 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // Jours fériés : heures sur un férié uniquement si déplacement coché ce jour-là
+    const weekPointages = await prisma.salariePointage.findMany({
+      where: { salarie_id, annee: data.annee, semaine: data.semaine },
+    });
+    const hSim: Record<string, number> = {
+      lundi: 0,
+      mardi: 0,
+      mercredi: 0,
+      jeudi: 0,
+      vendredi: 0,
+      samedi: 0,
+      dimanche: 0,
+    };
+    const curProjet = BigInt(data.projet_id);
+    for (const p of weekPointages) {
+      const sameLine = p.projet_id === curProjet && p.tache_type_id === finalTacheTypeId;
+      if (sameLine) continue;
+      hSim.lundi += Number(p.heure_lundi || 0);
+      hSim.mardi += Number(p.heure_mardi || 0);
+      hSim.mercredi += Number(p.heure_mercredi || 0);
+      hSim.jeudi += Number(p.heure_jeudi || 0);
+      hSim.vendredi += Number(p.heure_vendredi || 0);
+      hSim.samedi += Number(p.heure_samedi || 0);
+      hSim.dimanche += Number(p.heure_dimanche || 0);
+    }
+    hSim.lundi += Number(data.heure_lundi || 0);
+    hSim.mardi += Number(data.heure_mardi || 0);
+    hSim.mercredi += Number(data.heure_mercredi || 0);
+    hSim.jeudi += Number(data.heure_jeudi || 0);
+    hSim.vendredi += Number(data.heure_vendredi || 0);
+    hSim.samedi += Number(data.heure_samedi || 0);
+    hSim.dimanche += Number(data.heure_dimanche || 0);
+
+    const congesPourValid = await prisma.salarieCp.findMany({
+      where: { salarie_id, annee: data.annee, semaine: data.semaine },
+    });
+    const dep: Record<(typeof JOURS_POINTAGE)[number], boolean> = {
+      lundi: false,
+      mardi: false,
+      mercredi: false,
+      jeudi: false,
+      vendredi: false,
+      samedi: false,
+      dimanche: false,
+    };
+    const depCongeValid = congesPourValid.find((c) => c.type_conge === 'Deplacement');
+    for (const c of congesPourValid) {
+      if (c.type_conge !== 'Deplacement') continue;
+      if (c.cp_lundi) dep.lundi = true;
+      if (c.cp_mardi) dep.mardi = true;
+      if (c.cp_mercredi) dep.mercredi = true;
+      if (c.cp_jeudi) dep.jeudi = true;
+      if (c.cp_vendredi) dep.vendredi = true;
+      if (c.cp_samedi) dep.samedi = true;
+      if (c.cp_dimanche) dep.dimanche = true;
+    }
+    const tfValid = parseTravailFerieDepMotif(depCongeValid?.motif ?? null);
+    const strictTf = motifDeclaresTravailFerie(depCongeValid?.motif ?? null);
+
+    const ferieRowsValid = await prisma.jourFerie.findMany({
+      where: { date: { gte: monday, lte: addDaysUTC(monday, 6) } },
+    });
+    const ferieKeySet = new Set(ferieRowsValid.map((j) => dateKeyUtc(j.date)));
+    for (let i = 0; i < 7; i++) {
+      const dk = dateKeyUtc(addDaysUTC(monday, i));
+      if (!ferieKeySet.has(dk)) continue;
+      const jour = JOURS_POINTAGE[i];
+      const h = Number(hSim[jour] || 0);
+      if (h <= 0) continue;
+      if (!dep[jour]) {
+        return res.status(400).json({
+          error:
+            'Impossible de saisir des heures un jour férié sans cocher « Déplacement » pour ce jour.',
+        });
+      }
+      if (strictTf && !tfValid[jour]) {
+        return res.status(400).json({
+          error:
+            'Impossible de saisir des heures un jour férié sans cocher aussi « Travail ce jour férié » (ligne au-dessus des déplacements).',
+        });
+      }
+    }
+
     // Préparer les données de mise à jour
     const updateData: any = {
       heure_lundi: data.heure_lundi || 0,
@@ -283,21 +559,23 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       heure_vendredi: data.heure_vendredi || 0,
       heure_samedi: data.heure_samedi || 0,
       heure_dimanche: data.heure_dimanche || 0,
-      commentaire: data.commentaire
+      commentaire: data.commentaire,
+      // Recalculer les dates civiles (corrige les anciennes lignes enregistrées avec décalage fuseau)
+      date_lundi: monday,
+      date_mardi: addDaysUTC(monday, 1),
+      date_mercredi: addDaysUTC(monday, 2),
+      date_jeudi: addDaysUTC(monday, 3),
+      date_vendredi: addDaysUTC(monday, 4),
+      date_samedi: addDaysUTC(monday, 5),
+      date_dimanche: addDaysUTC(monday, 6),
     };
-
-    // Réinitialiser le statut à Brouillon si on modifie un pointage soumis
-    if (pointageExistant && pointageExistant.validation_status === 'Soumis') {
-      updateData.validation_status = 'Brouillon';
-      console.log('Réinitialisation du statut à Brouillon pour pointage soumis');
-    }
 
     const pointage = await prisma.salariePointage.upsert({
       where: {
         salarie_id_projet_id_tache_type_id_annee_semaine: {
           salarie_id,
           projet_id: BigInt(data.projet_id),
-          tache_type_id: BigInt(data.tache_type_id),
+          tache_type_id: finalTacheTypeId,
           annee: data.annee,
           semaine: data.semaine
         }
@@ -306,7 +584,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       create: {
         salarie_id,
         projet_id: BigInt(data.projet_id),
-        tache_type_id: BigInt(data.tache_type_id),
+        tache_type_id: finalTacheTypeId,
         annee: data.annee,
         semaine: data.semaine,
         heure_lundi: data.heure_lundi || 0,
@@ -317,12 +595,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
         heure_samedi: data.heure_samedi || 0,
         heure_dimanche: data.heure_dimanche || 0,
         date_lundi: monday,
-        date_mardi: new Date(monday.getTime() + 1 * 24 * 60 * 60 * 1000),
-        date_mercredi: new Date(monday.getTime() + 2 * 24 * 60 * 60 * 1000),
-        date_jeudi: new Date(monday.getTime() + 3 * 24 * 60 * 60 * 1000),
-        date_vendredi: new Date(monday.getTime() + 4 * 24 * 60 * 60 * 1000),
-        date_samedi: new Date(monday.getTime() + 5 * 24 * 60 * 60 * 1000),
-        date_dimanche: new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000),
+        date_mardi: addDaysUTC(monday, 1),
+        date_mercredi: addDaysUTC(monday, 2),
+        date_jeudi: addDaysUTC(monday, 3),
+        date_vendredi: addDaysUTC(monday, 4),
+        date_samedi: addDaysUTC(monday, 5),
+        date_dimanche: addDaysUTC(monday, 6),
         commentaire: data.commentaire
       },
       include: {
@@ -364,16 +642,24 @@ router.post('/soumettre', authMiddleware, async (req: AuthRequest, res: Response
 
     console.log('Pointages trouvés pour soumission:', pointages.length);
 
-    const totalHeures = pointages.reduce((sum, p) => {
-      return sum + 
-        Number(p.heure_lundi || 0) +
-        Number(p.heure_mardi || 0) +
-        Number(p.heure_mercredi || 0) +
-        Number(p.heure_jeudi || 0) +
-        Number(p.heure_vendredi || 0) +
-        Number(p.heure_samedi || 0) +
-        Number(p.heure_dimanche || 0);
-    }, 0);
+    const heuresParJourSoum: Record<string, number> = {
+      lundi: 0,
+      mardi: 0,
+      mercredi: 0,
+      jeudi: 0,
+      vendredi: 0,
+      samedi: 0,
+      dimanche: 0,
+    };
+    for (const p of pointages) {
+      heuresParJourSoum.lundi += Number(p.heure_lundi || 0);
+      heuresParJourSoum.mardi += Number(p.heure_mardi || 0);
+      heuresParJourSoum.mercredi += Number(p.heure_mercredi || 0);
+      heuresParJourSoum.jeudi += Number(p.heure_jeudi || 0);
+      heuresParJourSoum.vendredi += Number(p.heure_vendredi || 0);
+      heuresParJourSoum.samedi += Number(p.heure_samedi || 0);
+      heuresParJourSoum.dimanche += Number(p.heure_dimanche || 0);
+    }
 
     // Récupérer les congés pour calculer le total de la semaine (CP, déplacement, formation comptent comme heures travaillées)
     const conges = await prisma.salarieCp.findMany({
@@ -415,44 +701,68 @@ router.post('/soumettre', authMiddleware, async (req: AuthRequest, res: Response
       }
     }
 
-    // Total de la semaine = heures travaillées + CP + déplacement + formation
-    const totalSemaine = totalHeures + heuresCP + heuresDeplacement + heuresFormation;
-    
-    // Récupérer le cumul des heures dues des semaines précédentes
-    // On prend la dernière semaine validée OU soumise pour avoir le cumul le plus récent
-    const derniereValidation = await prisma.validationSemaine.findFirst({
-      where: {
-        salarie_id,
-        status: { in: ['Valide', 'Soumis'] },
-        OR: [
-          { annee: { lt: annee } },
-          { annee: annee, semaine: { lt: semaine } }
-        ]
-      },
-      orderBy: [
-        { annee: 'desc' },
-        { semaine: 'desc' }
-      ]
+    const mondaySoum = getMondayOfWeek(annee, semaine);
+    const joursFeriesSoum = await prisma.jourFerie.findMany({
+      where: { date: { gte: mondaySoum, lte: addDaysUTC(mondaySoum, 6) } },
     });
+    const depSoum: Record<(typeof JOURS_POINTAGE)[number], boolean> = {
+      lundi: false,
+      mardi: false,
+      mercredi: false,
+      jeudi: false,
+      vendredi: false,
+      samedi: false,
+      dimanche: false,
+    };
+    const depCongeSoum = conges.find((c) => c.type_conge === 'Deplacement');
+    for (const c of conges) {
+      if (c.type_conge !== 'Deplacement') continue;
+      if (c.cp_lundi) depSoum.lundi = true;
+      if (c.cp_mardi) depSoum.mardi = true;
+      if (c.cp_mercredi) depSoum.mercredi = true;
+      if (c.cp_jeudi) depSoum.jeudi = true;
+      if (c.cp_vendredi) depSoum.vendredi = true;
+      if (c.cp_samedi) depSoum.samedi = true;
+      if (c.cp_dimanche) depSoum.dimanche = true;
+    }
+    const tfSoum = parseTravailFerieDepMotif(depCongeSoum?.motif ?? null);
+    const strictTfSoum = motifDeclaresTravailFerie(depCongeSoum?.motif ?? null);
+    const ferieKeySoum = new Set(joursFeriesSoum.map((j) => dateKeyUtc(j.date)));
+    for (let i = 0; i < 7; i++) {
+      const dk = dateKeyUtc(addDaysUTC(mondaySoum, i));
+      if (!ferieKeySoum.has(dk)) continue;
+      const jour = JOURS_POINTAGE[i];
+      const h = Number(heuresParJourSoum[jour] || 0);
+      if (h <= 0) continue;
+      if (!depSoum[jour]) {
+        return res.status(400).json({
+          error:
+            'Impossible de soumettre : des heures sont saisies un jour férié sans « Déplacement » pour ce jour.',
+        });
+      }
+      if (strictTfSoum && !tfSoum[jour]) {
+        return res.status(400).json({
+          error:
+            'Impossible de soumettre : un jour férié avec des heures nécessite aussi la case « Travail ce jour férié ».',
+        });
+      }
+    }
 
-    // Le cumul est stocké dans heures_dues de la dernière validation
-    // Chaque semaine stocke son cumul final, donc on prend simplement ce cumul
-    const cumulHeuresDuesPrecedentes = derniereValidation ? Number(derniereValidation.heures_dues || 0) : 0;
-    
-    console.log('=== POST soumettre - Calcul cumul ===');
-    console.log('Semaine:', annee, semaine);
-    console.log('Dernière validation trouvée:', derniereValidation ? {
-      annee: derniereValidation.annee,
-      semaine: derniereValidation.semaine,
-      status: derniereValidation.status,
-      heures_dues: derniereValidation.heures_dues?.toString()
-    } : 'Aucune');
-    console.log('Cumul précédent:', cumulHeuresDuesPrecedentes);
+    const ferieSoum = computeFerieSemaineServer(mondaySoum, heuresParJourSoum, joursFeriesSoum, HEURES_PAR_JOUR);
 
-    // Les heures normales requises = 35h + cumul heures dues précédentes
-    // Exemple : si cumul = 5h, alors il faut faire 35h + 5h = 40h cette semaine
+    // Total « objectif » = travail hors férié + crédit férié non travaillé + CP + déplacement + formation
+    // Les heures pointées un jour férié sont exclues du total objectif et comptées en heures sup.
+    const totalSemaine =
+      ferieSoum.heuresTravailSansFerie +
+      ferieSoum.creditFerie +
+      heuresCP +
+      heuresDeplacement +
+      heuresFormation;
+
+    // Heures normales requises = 35h − 7h par jour férié dans la semaine.
     const HEURES_SEMAINE_NORMALE = 35;
-    const heuresNormalesRequises = HEURES_SEMAINE_NORMALE + cumulHeuresDuesPrecedentes;
+    const heuresNormalesRequises =
+      HEURES_SEMAINE_NORMALE - HEURES_PAR_JOUR * ferieSoum.nbFeries;
 
     // Calculer les heures dues de cette semaine
     // Si totalSemaine < heures normales requises, les heures manquantes deviennent des heures dues
@@ -461,16 +771,8 @@ router.post('/soumettre', authMiddleware, async (req: AuthRequest, res: Response
     // Les heures de maladie s'ajoutent aussi aux heures dues
     const heuresDues = heuresDuesSemaine + heuresMaladie;
     
-    // Calculer combien d'heures en plus on a fait par rapport aux heures normales requises
     const heuresEnPlus = Math.max(0, totalSemaine - heuresNormalesRequises);
-    
-    // Les heures en plus servent D'ABORD à rattraper les heures dues
-    // Seulement après avoir rattrapé tout le cumul, les heures restantes deviennent des heures sup
-    const heuresRattrapees = Math.min(heuresEnPlus, cumulHeuresDuesPrecedentes);
-    const heuresSup = Math.max(0, heuresEnPlus - heuresRattrapees); // Heures sup seulement après rattrapage
-    
-    // Calculer le nouveau cumul (heures dues de cette semaine + cumul précédent - heures rattrapées)
-    const nouveauCumulHeuresDues = Math.max(0, cumulHeuresDuesPrecedentes + heuresDues - heuresRattrapees);
+    const heuresSup = heuresEnPlus + ferieSoum.heuresTravailJoursFeries;
     
     console.log('Calcul heures dues:', {
       totalSemaine,
@@ -478,13 +780,10 @@ router.post('/soumettre', authMiddleware, async (req: AuthRequest, res: Response
       heuresDuesSemaine,
       heuresMaladie,
       heuresDues,
-      cumulHeuresDuesPrecedentes,
       heuresSup,
-      heuresRattrapees,
-      nouveauCumulHeuresDues
     });
 
-    // Créer ou mettre à jour la validation avec le nouveau cumul dans heures_dues
+    // Stocker uniquement les heures dues de la semaine courante.
     const validation = await prisma.validationSemaine.upsert({
       where: {
         salarie_id_annee_semaine: { salarie_id, annee, semaine }
@@ -492,7 +791,7 @@ router.post('/soumettre', authMiddleware, async (req: AuthRequest, res: Response
       update: {
         status: 'Soumis',
         total_heures: totalSemaine, // Total incluant CP, déplacement, formation
-        heures_dues: nouveauCumulHeuresDues, // On stocke le nouveau cumul, pas juste les heures dues de la semaine
+        heures_dues: heuresDues,
         date_soumission: new Date()
       },
       create: {
@@ -501,7 +800,7 @@ router.post('/soumettre', authMiddleware, async (req: AuthRequest, res: Response
         semaine,
         status: 'Soumis',
         total_heures: totalSemaine,
-        heures_dues: nouveauCumulHeuresDues, // On stocke le nouveau cumul
+        heures_dues: heuresDues,
         date_soumission: new Date()
       }
     });
@@ -675,9 +974,21 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) =>
       return res.status(403).json({ error: 'Non autorisé' });
     }
 
-    // Ne pas supprimer si validé
-    if (pointage.validation_status === 'Valide') {
-      return res.status(400).json({ error: 'Impossible de supprimer un pointage validé' });
+    if (pointage.validation_status === 'Valide' || pointage.validation_status === 'Soumis') {
+      return res.status(400).json({ error: 'Impossible de supprimer un pointage d\'une semaine soumise ou validée' });
+    }
+
+    const validationDelete = await prisma.validationSemaine.findUnique({
+      where: {
+        salarie_id_annee_semaine: {
+          salarie_id: pointage.salarie_id,
+          annee: pointage.annee,
+          semaine: pointage.semaine,
+        },
+      },
+    });
+    if (validationDelete && (validationDelete.status === 'Soumis' || validationDelete.status === 'Valide')) {
+      return res.status(400).json({ error: 'Impossible de supprimer un pointage d\'une semaine soumise ou validée' });
     }
 
     await prisma.salariePointage.delete({ where: { id } });
