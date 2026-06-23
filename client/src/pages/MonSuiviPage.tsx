@@ -97,6 +97,28 @@ function isoWeekNumber(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
+// Calcule le lundi ISO 8601 en UTC pur à partir de (année, semaine) — même algo que le backend
+function getMondayIsoFromWeek(annee: number, semaine: number): string {
+  if (!annee || !semaine || semaine < 1 || semaine > 53) return '';
+  const jan4Utc = Date.UTC(annee, 0, 4);
+  const offsetDaysSinceMonday = (new Date(jan4Utc).getUTCDay() + 6) % 7;
+  const mondayUtc = jan4Utc - offsetDaysSinceMonday * 24 * 60 * 60 * 1000 + (semaine - 1) * 7 * 24 * 60 * 60 * 1000;
+  const monday = new Date(mondayUtc);
+  const y = monday.getUTCFullYear();
+  const mo = String(monday.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(monday.getUTCDate()).padStart(2, '0');
+  return `${y}-${mo}-${d}`;
+}
+
+// Extrait YYYY-MM-DD depuis date_lundi ou calcule depuis annee+semaine si absent
+function getLundiStr(item: any): string {
+  if (item.date_lundi) {
+    const s = String(item.date_lundi).split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  }
+  return getMondayIsoFromWeek(Number(item.annee), Number(item.semaine));
+}
+
 // ─── Construction du calendrier ───────────────────────────────────────────────
 
 function buildCalendar(
@@ -138,7 +160,7 @@ function buildCalendar(
 
   // Mapper les pointages sur les jours
   pointages.forEach((p: any) => {
-    const lundiStr = String(p.date_lundi || '').split('T')[0];
+    const lundiStr = getLundiStr(p);
     if (!lundiStr) return;
     const weekDays = getWeekDaysFromApiMonday(lundiStr);
     if (weekDays.length !== 7) return;
@@ -165,7 +187,7 @@ function buildCalendar(
 
   // Mapper les absences/congés sur les jours
   conges.forEach((c: any) => {
-    const lundiStr = String(c.date_lundi || '').split('T')[0];
+    const lundiStr = getLundiStr(c);
     if (!lundiStr) return;
     const weekDays = getWeekDaysFromApiMonday(lundiStr);
     if (weekDays.length !== 7) return;
