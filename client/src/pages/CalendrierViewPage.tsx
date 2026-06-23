@@ -575,7 +575,7 @@ export const CalendrierViewPage = () => {
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <div className="text-center p-3 bg-blue-50 rounded-lg">
                     <div className="text-xs text-gray-500 mb-1">Total</div>
-                    <div className="text-xl font-bold text-blue-700">{formatDureeQuart(calculs.totalSemaine)}</div>
+                    <div className="text-xl font-bold text-blue-700">{formatDureeQuart(calculs.heuresTravaillees)}</div>
                   </div>
                   <div className="text-center p-3 bg-green-50 rounded-lg">
                     <div className="text-xs text-gray-500 mb-1">Normales</div>
@@ -729,7 +729,7 @@ export const CalendrierViewPage = () => {
                           {formatDureeQuart(calculs.heuresParJour[jk])}
                         </td>
                       ))}
-                      <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.totalSemaine)}</td>
+                      <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.heuresTravaillees)}</td>
                       <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.heuresNormales)}</td>
                       <td className="px-4 py-3 text-right font-medium border-r">{formatDureeQuart(calculs.heuresSup)}</td>
                       <td className="px-4 py-3 text-right border-r">
